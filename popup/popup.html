@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IREPS Auto Bidder</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <header class="popup-header">
+      <span class="popup-logo">⚡</span>
+      <h1 class="popup-title">IREPS Auto Bidder</h1>
+    </header>
+
+    <div class="popup-status" id="popup-status">
+      <div class="status-dot" id="status-dot"></div>
+      <span id="status-text">Checking...</span>
+    </div>
+
+    <div class="popup-info">
+      <div class="info-row">
+        <span class="info-label">Current Bid</span>
+        <span class="info-value" id="current-bid">—</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">Next Bid</span>
+        <span class="info-value" id="next-bid">—</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">Bids Placed</span>
+        <span class="info-value" id="bid-count">0</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">Max Limit</span>
+        <span class="info-value" id="max-limit">∞</span>
+      </div>
+    </div>
+
+    <div class="popup-controls">
+      <button id="btn-arm" class="popup-btn btn-arm">⚡ ARM</button>
+      <button id="btn-disarm" class="popup-btn btn-disarm" style="display:none;">🛑 DISARM</button>
+    </div>
+
+    <div class="popup-max-bid">
+      <label for="max-bid-input">Max Bid Limit (₹):</label>
+      <input type="number" id="max-bid-input" placeholder="No limit">
+      <button id="btn-set-limit" class="popup-btn btn-small">Set</button>
+    </div>
+
+    <div class="popup-footer">
+      <p id="config-status">⚙️ Open IREPS auction page → use overlay to configure.</p>
+    </div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

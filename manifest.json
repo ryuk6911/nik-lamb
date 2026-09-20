@@ -1,0 +1,46 @@
+{
+  "manifest_version": 3,
+  "name": "IREPS Auto Bidder",
+  "version": "1.0.0",
+  "description": "Monitors IREPS e-auction pages and automatically places the next valid bid when outbid.",
+  "permissions": [
+    "storage",
+    "notifications"
+  ],
+  "host_permissions": [
+    "https://ireps.gov.in/*",
+    "https://*.ireps.gov.in/*",
+    "http://ireps.gov.in/*",
+    "http://*.ireps.gov.in/*"
+  ],
+  "action": {
+    "default_popup": "popup/popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://ireps.gov.in/*",
+        "https://*.ireps.gov.in/*",
+        "http://ireps.gov.in/*",
+        "http://*.ireps.gov.in/*"
+      ],
+      "js": ["content/interceptor.js"],
+      "world": "MAIN",
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "https://ireps.gov.in/*",
+        "https://*.ireps.gov.in/*",
+        "http://ireps.gov.in/*",
+        "http://*.ireps.gov.in/*"
+      ],
+      "js": ["content/content.js"],
+      "css": ["content/overlay.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "background": {
+    "service_worker": "background/service-worker.js"
+  }
+}

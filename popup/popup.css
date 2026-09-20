@@ -1,0 +1,207 @@
+/* ══════════════════════════════════
+   IREPS Auto Bidder — Popup Styles
+   ══════════════════════════════════ */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  width: 300px;
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  background: #0a0f1e;
+  color: #e0e0e0;
+}
+
+.popup-container {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ── Header ── */
+.popup-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.popup-logo {
+  font-size: 22px;
+  filter: drop-shadow(0 0 6px rgba(255, 200, 0, 0.5));
+}
+
+.popup-title {
+  font-size: 16px;
+  font-weight: 700;
+  background: linear-gradient(90deg, #00ff88, #00ccff);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ── Status ── */
+.popup-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #555;
+  flex-shrink: 0;
+}
+
+.status-dot.armed {
+  background: #00ff88;
+  box-shadow: 0 0 8px #00ff88;
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+.status-dot.disarmed {
+  background: #ff4444;
+  box-shadow: 0 0 4px rgba(255, 68, 68, 0.4);
+}
+
+.status-dot.no-page {
+  background: #666;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* ── Info rows ── */
+.popup-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.info-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 5px 10px;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.info-label {
+  color: #777;
+}
+
+.info-value {
+  font-weight: 600;
+  color: #00e676;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Controls ── */
+.popup-controls {
+  display: flex;
+  gap: 8px;
+}
+
+.popup-btn {
+  flex: 1;
+  padding: 10px 16px;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.popup-btn:active {
+  transform: scale(0.97);
+}
+
+.btn-arm {
+  background: linear-gradient(135deg, #00c853, #00e676);
+  color: #003d00;
+  box-shadow: 0 2px 12px rgba(0, 200, 83, 0.25);
+}
+
+.btn-arm:hover {
+  box-shadow: 0 4px 20px rgba(0, 200, 83, 0.4);
+}
+
+.btn-disarm {
+  background: linear-gradient(135deg, #ff1744, #ff5252);
+  color: #fff;
+  box-shadow: 0 2px 12px rgba(255, 23, 68, 0.25);
+}
+
+.btn-disarm:hover {
+  box-shadow: 0 4px 20px rgba(255, 23, 68, 0.4);
+}
+
+.btn-small {
+  flex: none;
+  padding: 6px 12px;
+  font-size: 11px;
+  background: rgba(41, 121, 255, 0.2);
+  color: #448aff;
+  border: 1px solid rgba(41, 121, 255, 0.3);
+}
+
+.btn-small:hover {
+  background: rgba(41, 121, 255, 0.35);
+}
+
+/* ── Max bid ── */
+.popup-max-bid {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.popup-max-bid label {
+  color: #888;
+  white-space: nowrap;
+}
+
+.popup-max-bid input {
+  flex: 1;
+  padding: 5px 8px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: #fff;
+  font-size: 12px;
+  outline: none;
+  width: 80px;
+}
+
+.popup-max-bid input:focus {
+  border-color: rgba(0, 255, 136, 0.4);
+}
+
+/* ── Footer ── */
+.popup-footer {
+  font-size: 11px;
+  color: #555;
+  text-align: center;
+  padding-top: 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.popup-footer p {
+  line-height: 1.5;
+}
