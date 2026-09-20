@@ -1,14 +1,14 @@
 /* ============================================================
    Nik-lamb — Content Script
-   Monitors the auction page for bid changes and auto-bids.
+   Content script for Nik-lamb.
    ============================================================ */
 
 (function () {
   'use strict';
 
   // Prevent double injection
-  if (window.__IREPS_AUTO_BIDDER_LOADED__) return;
-  window.__IREPS_AUTO_BIDDER_LOADED__ = true;
+  if (window.__NL_LOADED__) return;
+  window.__NL_LOADED__ = true;
 
   // ── State ──
   let isArmed = false;
@@ -30,7 +30,7 @@
     currentBidDisplay: '', // Element showing the current highest bid
     nextBidInput: '',      // Input field with the next valid bid amount
     bidButton: '',         // The submit/place bid button
-    bidderInfo: ''         // Optional: who placed the last bid
+    extraInfo: ''         // Optional: who placed the last entry
   };
 
   // ── Logging ──
@@ -43,7 +43,7 @@
     logs.push(entry);
     if (logs.length > 200) logs.shift();
     updateOverlayLog(entry);
-    console.log(`[IREPS-Bot][${entry.time}] ${msg}`);
+    console.log(`[NL][${entry.time}] ${msg}`);
   }
 
   // ── Core: Extract numeric value from text ──
@@ -121,8 +121,8 @@
         return;
       }
 
-      // AUTO BID!
-      log(`⚡ Auto-bidding! Placing bid: ₹${nextBidAmount || '(page default)'}`, 'bid');
+      // ACT NOW!
+      log(`⚡ Acting! Placing entry: ₹${nextBidAmount || '(page default)'}`, 'bid');
       const clicked = clickBidButton();
       if (clicked) {
         bidCount++;
@@ -140,7 +140,7 @@
   // ── Network Intercept: Listen for bid data from MAIN world interceptor ──
   window.addEventListener('message', (event) => {
     if (event.source !== window) return;
-    if (event.data?.type !== 'ireps-auto-bidder-intercept') return;
+    if (event.data?.type !== 'nl-intercept') return;
     if (!isArmed) return;
 
     const payload = event.data.payload;
@@ -335,7 +335,7 @@
       const pollSpeed = parseInt(document.getElementById('ireps-bot-poll-input')?.value) || 30;
       startPolling(pollSpeed);
     } else {
-      log('🔴 DISARMED. Auto-bidding stopped.', 'warn');
+      log('🔴 DISARMED. Monitoring stopped.', 'warn');
       stopObserver();
       stopConfirmObserver();
       stopPolling();
@@ -358,7 +358,7 @@
     overlay.innerHTML = `
       <div class="ireps-bot-header">
         <span class="ireps-bot-logo">⚡</span>
-        <span class="ireps-bot-title">Auto Bidder</span>
+        <span class="ireps-bot-title">Nik-lamb</span>
         <button id="ireps-bot-minimize" class="ireps-bot-btn-icon" title="Minimize">─</button>
       </div>
       <div class="ireps-bot-body" id="ireps-bot-body">
@@ -640,7 +640,7 @@
       pollSpeed
     };
 
-    chrome.storage.local.set({ irepsConfig: config }, () => {
+    chrome.storage.local.set({ nlConfig: config }, () => {
       log('💾 Configuration saved!', 'success');
       updateOverlayStatus();
     });
@@ -648,17 +648,17 @@
 
   // ── Load config from chrome.storage ──
   function loadConfig(callback) {
-    chrome.storage.local.get(['irepsConfig', 'isArmed'], (data) => {
-      if (data.irepsConfig) {
-        selectorConfig = data.irepsConfig.selectors || { ...DEFAULT_SELECTORS };
-        maxBidLimit = data.irepsConfig.maxBidLimit || Infinity;
+    chrome.storage.local.get(['nlConfig', 'isArmed'], (data) => {
+      if (data.nlConfig) {
+        selectorConfig = data.nlConfig.selectors || { ...DEFAULT_SELECTORS };
+        maxBidLimit = data.nlConfig.maxBidLimit || Infinity;
 
         // Update UI
         const maxInput = document.getElementById('ireps-bot-max-input');
         if (maxInput && maxBidLimit !== Infinity) maxInput.value = maxBidLimit;
 
         const pollInput = document.getElementById('ireps-bot-poll-input');
-        if (pollInput) pollInput.value = data.irepsConfig.pollSpeed || 100;
+        if (pollInput) pollInput.value = data.nlConfig.pollSpeed || 100;
 
         // Update selector status icons
         for (const field of ['currentBidDisplay', 'nextBidInput', 'bidButton']) {

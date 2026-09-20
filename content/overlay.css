@@ -105,7 +105,7 @@
 .ireps-bot-dot-armed {
   background: #00ff88;
   box-shadow: 0 0 8px #00ff88, 0 0 16px rgba(0, 255, 136, 0.4);
-  animation: ireps-pulse 1.2s ease-in-out infinite;
+  animation: nl-pulse 1.2s ease-in-out infinite;
 }
 
 .ireps-bot-dot-disarmed {
@@ -113,7 +113,7 @@
   box-shadow: 0 0 6px rgba(255, 68, 68, 0.4);
 }
 
-@keyframes ireps-pulse {
+@keyframes nl-pulse {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.6; transform: scale(1.3); }
 }

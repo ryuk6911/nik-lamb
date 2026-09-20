@@ -19,7 +19,7 @@ async function showNotification(title, body) {
   // Generate a simple icon as data URL using OffscreenCanvas
   const iconUrl = await getIconDataUrl();
 
-  chrome.notifications.create(`ireps-bid-${Date.now()}`, {
+  chrome.notifications.create(`nl-notify-${Date.now()}`, {
     type: 'basic',
     iconUrl,
     title: title || 'Nik-lamb',
@@ -57,7 +57,7 @@ async function getIconDataUrl() {
 // Keep service worker alive during active bidding by using alarms
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === 'keepalive') {
-    // Just a heartbeat to prevent SW from dying during an active auction
+    // Just a heartbeat to prevent SW from dying during active monitoring
     const { isArmed } = await chrome.storage.local.get('isArmed');
     if (!isArmed) {
       await chrome.alarms.clear('keepalive');

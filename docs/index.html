@@ -16,7 +16,6 @@
       --accent-glow: rgba(0, 255, 136, 0.15);
       --text: #e2e8f0;
       --text-dim: #94a3b8;
-      --danger: #ff4757;
       --warning: #ffa726;
     }
 
@@ -30,7 +29,6 @@
       overflow-x: hidden;
     }
 
-    /* Animated background grid */
     body::before {
       content: '';
       position: fixed;
@@ -49,7 +47,6 @@
       z-index: 1;
     }
 
-    /* Header */
     .hero {
       text-align: center;
       margin-bottom: 48px;
@@ -87,7 +84,6 @@
       line-height: 1.6;
     }
 
-    /* Download button */
     .download-section {
       text-align: center;
       margin-bottom: 48px;
@@ -131,7 +127,6 @@
       color: var(--text-dim);
     }
 
-    /* Steps */
     .steps {
       margin-bottom: 48px;
     }
@@ -195,7 +190,6 @@
       border: 1px solid var(--border);
     }
 
-    /* Info cards */
     .info-card {
       padding: 20px;
       background: var(--surface);
@@ -228,46 +222,6 @@
       margin-bottom: 4px;
     }
 
-    .warning-card {
-      border-color: rgba(255, 167, 38, 0.3);
-      background: rgba(255, 167, 38, 0.05);
-    }
-
-    .warning-card h3 { color: var(--warning); }
-
-    /* Features section */
-    .features {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 12px;
-      margin-bottom: 48px;
-    }
-
-    .feature {
-      padding: 16px;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      text-align: center;
-    }
-
-    .feature-icon {
-      font-size: 1.5rem;
-      margin-bottom: 8px;
-    }
-
-    .feature h4 {
-      font-size: 0.85rem;
-      font-weight: 600;
-      margin-bottom: 4px;
-    }
-
-    .feature p {
-      font-size: 0.78rem;
-      color: var(--text-dim);
-    }
-
-    /* Update section */
     .update-section {
       margin-top: 48px;
     }
@@ -280,7 +234,6 @@
       border-bottom: 1px solid var(--border);
     }
 
-    /* Footer */
     .footer {
       text-align: center;
       margin-top: 60px;
@@ -290,9 +243,7 @@
       font-size: 0.8rem;
     }
 
-    /* Responsive */
     @media (max-width: 600px) {
-      .features { grid-template-columns: 1fr; }
       .hero h1 { font-size: 1.6rem; }
       .container { padding: 24px 16px 60px; }
     }
@@ -300,14 +251,12 @@
 </head>
 <body>
   <div class="container">
-    <!-- Hero -->
     <div class="hero">
       <span class="hero-icon">⚡</span>
       <h1><span>Nik-lamb</span></h1>
-      <p>Monitors IREPS e-auction pages and automatically places the next valid bid when you're outbid. Lightning-fast network interception for near-instant reactions.</p>
+      <p>A lightweight Chrome extension for real-time page monitoring and workflow automation.</p>
     </div>
 
-    <!-- Download -->
     <div class="download-section">
       <a class="btn-download" id="downloadBtn" href="#">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -320,39 +269,14 @@
       <div class="version-tag">v1.0.0 • Chrome Extension • Manifest V3</div>
     </div>
 
-    <!-- Features -->
-    <div class="features">
-      <div class="feature">
-        <div class="feature-icon">📡</div>
-        <h4>Network Interception</h4>
-        <p>Catches bid data from AJAX responses before DOM renders</p>
-      </div>
-      <div class="feature">
-        <div class="feature-icon">⚡</div>
-        <h4>30ms Polling</h4>
-        <p>33 checks/sec fallback for maximum detection speed</p>
-      </div>
-      <div class="feature">
-        <div class="feature-icon">🎯</div>
-        <h4>Point & Click Setup</h4>
-        <p>No coding — just click the elements on the page</p>
-      </div>
-      <div class="feature">
-        <div class="feature-icon">🛡️</div>
-        <h4>Max Bid Limit</h4>
-        <p>Set a ceiling and the bot stops automatically</p>
-      </div>
-    </div>
-
-    <!-- Install Steps -->
     <div class="steps">
-      <h2>📦 Installation Steps</h2>
+      <h2>📦 Installation</h2>
 
       <div class="step">
         <div class="step-number">1</div>
         <div class="step-content">
           <h3>Download & Unzip</h3>
-          <p>Click the download button above. Extract the ZIP file — you'll get a folder called <code>ireps-auto-bidder</code>.</p>
+          <p>Click the download button above. Extract the ZIP file — you'll get a folder called <code>nik-lamb</code>.</p>
         </div>
       </div>
 
@@ -368,35 +292,32 @@
         <div class="step-number">3</div>
         <div class="step-content">
           <h3>Load the Extension</h3>
-          <p>Click <strong>"Load unpacked"</strong> and select the unzipped <code>ireps-auto-bidder</code> folder. The ⚡ icon should appear in your Chrome toolbar.</p>
+          <p>Click <strong>"Load unpacked"</strong> and select the unzipped <code>nik-lamb</code> folder. The ⚡ icon should appear in your Chrome toolbar.</p>
         </div>
       </div>
 
       <div class="step">
         <div class="step-number">4</div>
         <div class="step-content">
-          <h3>Go to IREPS & Set Up</h3>
-          <p>Navigate to your IREPS auction page. You'll see a floating <strong>⚡ Auto Bidder</strong> panel. Click <strong>⚙️ Setup</strong> and point-and-click on the bid elements, then hit <strong>⚡ ARM</strong>.</p>
+          <h3>Open the Target Page & Set Up</h3>
+          <p>Navigate to the target page. You'll see a floating <strong>⚡ Nik-lamb</strong> panel. Click <strong>⚙️ Setup</strong> to configure the elements, then hit <strong>⚡ ARM</strong> to start.</p>
         </div>
       </div>
     </div>
 
-    <!-- What to report -->
     <div class="info-card">
-      <h3>🧪 Testing — What to Report Back</h3>
+      <h3>🧪 Feedback</h3>
       <ul>
-        <li><strong>Speed:</strong> How fast does it react? Check the Activity Log for <code>[via network]</code> vs <code>[via poll]</code></li>
-        <li><strong>Network URLs:</strong> What shows up in <code>📡 Network intercept</code> messages in the log?</li>
-        <li><strong>Confirmation dialogs:</strong> Does it auto-click OK/Confirm after bidding?</li>
-        <li><strong>Selectors:</strong> Did point-and-click setup pick the correct elements?</li>
-        <li><strong>Errors:</strong> Open DevTools (<code>F12</code>) → Console → filter for <code>[IREPS-Bot]</code></li>
-        <li><strong>Screenshots:</strong> Activity Log panel + DevTools console after a few bid cycles</li>
+        <li><strong>Speed:</strong> How fast does it react? Check the Activity Log for timestamps.</li>
+        <li><strong>Setup:</strong> Did the point-and-click element selection work correctly?</li>
+        <li><strong>Dialogs:</strong> Did it handle confirmation popups automatically?</li>
+        <li><strong>Errors:</strong> Open DevTools (<code>F12</code>) → Console — screenshot any errors.</li>
+        <li><strong>Screenshots:</strong> Activity Log panel + DevTools console.</li>
       </ul>
     </div>
 
-    <!-- Update instructions -->
     <div class="update-section">
-      <h2>🔄 Updating to a New Version</h2>
+      <h2>🔄 Updating</h2>
       <div class="step">
         <div class="step-number">1</div>
         <div class="step-content">
@@ -408,28 +329,25 @@
         <div class="step-number">2</div>
         <div class="step-content">
           <h3>Replace & Reload</h3>
-          <p>Extract over the old folder. Go to <code>chrome://extensions</code> and click the 🔄 reload button on the extension card. Your saved config will persist.</p>
+          <p>Extract over the old folder. Go to <code>chrome://extensions</code> and click the 🔄 reload button on the extension card.</p>
         </div>
       </div>
     </div>
 
-    <div class="info-card warning-card" style="margin-top: 32px;">
-      <h3>⚠️ Important</h3>
-      <p>This is a personal productivity tool. You must have a valid DSC to log in to IREPS. The extension runs entirely in your browser — no data is sent to any external server.</p>
+    <div class="info-card" style="margin-top: 32px;">
+      <h3>ℹ️ Note</h3>
+      <p>This extension runs entirely in your browser. No data is sent to any external server.</p>
     </div>
 
     <div class="footer">
-      <p>Nik-lamb v1.0.0 &mdash; For testing purposes only</p>
+      <p>Nik-lamb v1.0.0</p>
     </div>
   </div>
 
   <script>
-    // Set download URL based on GitHub repo
-    // Replace OWNER and REPO with actual values
     const owner = 'ryuk6911';
     const repo = 'nik-lamb';
     const downloadUrl = `https://github.com/${owner}/${repo}/archive/refs/heads/main.zip`;
-
     document.getElementById('downloadBtn').href = downloadUrl;
   </script>
 </body>

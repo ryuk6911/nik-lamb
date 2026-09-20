@@ -18,14 +18,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Get the active tab
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  const isIrepsPage = tab?.url?.includes('ireps.gov.in');
+  const isTargetPage = tab?.url?.includes('ireps.gov.in');
 
-  if (!isIrepsPage) {
+  if (!isTargetPage) {
     statusDot.className = 'status-dot no-page';
-    statusText.textContent = 'Not on IREPS page';
+    statusText.textContent = 'Not on target page';
     btnArm.disabled = true;
     btnArm.style.opacity = '0.4';
-    configStatus.textContent = '🌐 Navigate to an IREPS auction page first.';
+    configStatus.textContent = '🌐 Navigate to the target page first.';
     return;
   }
 
@@ -35,7 +35,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (chrome.runtime.lastError || !response) {
         statusDot.className = 'status-dot no-page';
         statusText.textContent = 'Extension not loaded on page';
-        configStatus.textContent = '🔄 Try refreshing the IREPS page.';
+        configStatus.textContent = '🔄 Try refreshing the target page.';
         return;
       }
 

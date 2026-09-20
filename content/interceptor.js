@@ -11,10 +11,10 @@
 (function () {
   'use strict';
 
-  if (window.__IREPS_INTERCEPTOR_LOADED__) return;
-  window.__IREPS_INTERCEPTOR_LOADED__ = true;
+  if (window.__NL_INTERCEPTOR_LOADED__) return;
+  window.__NL_INTERCEPTOR_LOADED__ = true;
 
-  const SIGNATURE = 'ireps-auto-bidder-intercept';
+  const SIGNATURE = 'nl-intercept';
 
   // ── Utility: Extract numbers that look like bid amounts ──
   function extractBidCandidates(text) {
@@ -34,7 +34,7 @@
     const urlStr = (url || '').toLowerCase();
     const bodyStr = (responseText || '').toLowerCase();
 
-    // URL pattern matching — common IREPS/auction endpoint patterns
+    // URL pattern matching — common endpoint patterns
     const urlPatterns = [
       'bid', 'auction', 'eauction', 'lot', 'tender',
       'current_price', 'currentprice', 'highestbid',
@@ -95,15 +95,15 @@
   const origSend = OrigXHR.prototype.send;
 
   OrigXHR.prototype.open = function (method, url, ...args) {
-    this._irepsMethod = method;
-    this._irepsUrl = url;
+    this._nlMethod = method;
+    this._nlUrl = url;
     return origOpen.call(this, method, url, ...args);
   };
 
   OrigXHR.prototype.send = function (...args) {
     this.addEventListener('load', function () {
       try {
-        const url = this._irepsUrl || '';
+        const url = this._nlUrl || '';
         const responseText = this.responseText || '';
 
         if (isBidRelated(url, responseText)) {
@@ -143,7 +143,7 @@
   };
 
   // ═══════════════════════════════════════════
-  //  PATCH WebSocket (in case IREPS uses WS)
+  //  PATCH WebSocket (in case NL uses WS)
   // ═══════════════════════════════════════════
 
   const OrigWebSocket = window.WebSocket;
@@ -174,5 +174,5 @@
     window.WebSocket.CLOSED = OrigWebSocket.CLOSED;
   }
 
-  console.log('[IREPS-Bot] Network interceptor active (XHR + fetch + WebSocket)');
+  console.log('[NL] Network interceptor active (XHR + fetch + WebSocket)');
 })();
