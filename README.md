@@ -1,4 +1,4 @@
-# ⚡ IREPS Auto Bidder — Chrome Extension
+# ⚡ Nik-lamb — Chrome Extension
 
 Monitors IREPS e-auction pages and automatically places the next valid bid when outbid.
 

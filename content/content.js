@@ -1,5 +1,5 @@
 /* ============================================================
-   IREPS Auto Bidder — Content Script
+   Nik-lamb — Content Script
    Monitors the auction page for bid changes and auto-bids.
    ============================================================ */
 
@@ -705,7 +705,7 @@
   function init() {
     createOverlay();
     loadConfig((data) => {
-      log('🚀 IREPS Auto Bidder loaded!', 'success');
+      log('🚀 Nik-lamb loaded!', 'success');
       log('⚙️ Click "Setup" to configure element selectors.', 'info');
 
       // Check if selectors are configured

@@ -1,5 +1,5 @@
 /* ═════════════════════════════════════
-   IREPS Auto Bidder — Popup Script
+   Nik-lamb — Popup Script
    Communicates with the content script.
    ═════════════════════════════════════ */
 

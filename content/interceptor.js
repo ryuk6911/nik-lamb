@@ -1,5 +1,5 @@
 /* ============================================================
-   IREPS Auto Bidder — Network Interceptor (MAIN world)
+   Nik-lamb — Network Interceptor (MAIN world)
    
    This script runs in the PAGE's JS context (not the extension's
    isolated world). It intercepts XHR and fetch responses to detect

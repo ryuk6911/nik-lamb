@@ -1,5 +1,5 @@
 /* ══════════════════════════════════════════
-   IREPS Auto Bidder — Service Worker
+   Nik-lamb — Service Worker
    Handles notifications and background state.
    ══════════════════════════════════════════ */
 
@@ -22,7 +22,7 @@ async function showNotification(title, body) {
   chrome.notifications.create(`ireps-bid-${Date.now()}`, {
     type: 'basic',
     iconUrl,
-    title: title || 'IREPS Auto Bidder',
+    title: title || 'Nik-lamb',
     message: body || '',
     priority: 2
   });

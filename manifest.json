@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "IREPS Auto Bidder",
+  "name": "Nik-lamb",
   "version": "1.0.0",
   "description": "Monitors IREPS e-auction pages and automatically places the next valid bid when outbid.",
   "permissions": [
