@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IREPS Auto Bidder — Install</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0a0e1a;
+      --surface: #111827;
+      --surface-2: #1a2235;
+      --border: #1e293b;
+      --accent: #00ff88;
+      --accent-dim: rgba(0, 255, 136, 0.1);
+      --accent-glow: rgba(0, 255, 136, 0.15);
+      --text: #e2e8f0;
+      --text-dim: #94a3b8;
+      --danger: #ff4757;
+      --warning: #ffa726;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Inter', -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* Animated background grid */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 80% 50% at 50% -20%, var(--accent-glow), transparent),
+        linear-gradient(180deg, transparent 0%, var(--bg) 100%);
+      z-index: 0;
+    }
+
+    .container {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 40px 24px 80px;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* Header */
+    .hero {
+      text-align: center;
+      margin-bottom: 48px;
+    }
+
+    .hero-icon {
+      font-size: 64px;
+      display: block;
+      margin-bottom: 16px;
+      filter: drop-shadow(0 0 24px var(--accent));
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.05); }
+    }
+
+    .hero h1 {
+      font-size: 2rem;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      margin-bottom: 8px;
+    }
+
+    .hero h1 span {
+      background: linear-gradient(135deg, var(--accent), #00cc6a);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .hero p {
+      color: var(--text-dim);
+      font-size: 1.05rem;
+      line-height: 1.6;
+    }
+
+    /* Download button */
+    .download-section {
+      text-align: center;
+      margin-bottom: 48px;
+    }
+
+    .btn-download {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 16px 36px;
+      background: var(--accent);
+      color: #000;
+      font-size: 1.1rem;
+      font-weight: 700;
+      border: none;
+      border-radius: 12px;
+      cursor: pointer;
+      text-decoration: none;
+      transition: all 0.2s;
+      box-shadow: 0 0 30px var(--accent-glow), 0 4px 12px rgba(0,0,0,0.3);
+    }
+
+    .btn-download:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 0 40px rgba(0, 255, 136, 0.3), 0 8px 20px rgba(0,0,0,0.4);
+    }
+
+    .btn-download svg {
+      width: 22px;
+      height: 22px;
+    }
+
+    .version-tag {
+      display: inline-block;
+      margin-top: 12px;
+      padding: 4px 12px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      font-size: 0.8rem;
+      color: var(--text-dim);
+    }
+
+    /* Steps */
+    .steps {
+      margin-bottom: 48px;
+    }
+
+    .steps h2 {
+      font-size: 1.4rem;
+      font-weight: 700;
+      margin-bottom: 24px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .step {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 24px;
+      padding: 20px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      transition: border-color 0.2s;
+    }
+
+    .step:hover {
+      border-color: var(--accent);
+    }
+
+    .step-number {
+      flex-shrink: 0;
+      width: 36px;
+      height: 36px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--accent-dim);
+      color: var(--accent);
+      font-weight: 700;
+      font-size: 0.95rem;
+      border-radius: 10px;
+      border: 1px solid rgba(0, 255, 136, 0.2);
+    }
+
+    .step-content h3 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+
+    .step-content p {
+      color: var(--text-dim);
+      font-size: 0.9rem;
+      line-height: 1.6;
+    }
+
+    .step-content code {
+      background: var(--surface-2);
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 0.85rem;
+      color: var(--accent);
+      border: 1px solid var(--border);
+    }
+
+    /* Info cards */
+    .info-card {
+      padding: 20px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      margin-bottom: 16px;
+    }
+
+    .info-card h3 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .info-card p, .info-card li {
+      color: var(--text-dim);
+      font-size: 0.9rem;
+      line-height: 1.6;
+    }
+
+    .info-card ul {
+      padding-left: 20px;
+      margin-top: 8px;
+    }
+
+    .info-card ul li {
+      margin-bottom: 4px;
+    }
+
+    .warning-card {
+      border-color: rgba(255, 167, 38, 0.3);
+      background: rgba(255, 167, 38, 0.05);
+    }
+
+    .warning-card h3 { color: var(--warning); }
+
+    /* Features section */
+    .features {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 48px;
+    }
+
+    .feature {
+      padding: 16px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      text-align: center;
+    }
+
+    .feature-icon {
+      font-size: 1.5rem;
+      margin-bottom: 8px;
+    }
+
+    .feature h4 {
+      font-size: 0.85rem;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    .feature p {
+      font-size: 0.78rem;
+      color: var(--text-dim);
+    }
+
+    /* Update section */
+    .update-section {
+      margin-top: 48px;
+    }
+
+    .update-section h2 {
+      font-size: 1.4rem;
+      font-weight: 700;
+      margin-bottom: 24px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    /* Footer */
+    .footer {
+      text-align: center;
+      margin-top: 60px;
+      padding-top: 24px;
+      border-top: 1px solid var(--border);
+      color: var(--text-dim);
+      font-size: 0.8rem;
+    }
+
+    /* Responsive */
+    @media (max-width: 600px) {
+      .features { grid-template-columns: 1fr; }
+      .hero h1 { font-size: 1.6rem; }
+      .container { padding: 24px 16px 60px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Hero -->
+    <div class="hero">
+      <span class="hero-icon">⚡</span>
+      <h1><span>IREPS Auto Bidder</span></h1>
+      <p>Monitors IREPS e-auction pages and automatically places the next valid bid when you're outbid. Lightning-fast network interception for near-instant reactions.</p>
+    </div>
+
+    <!-- Download -->
+    <div class="download-section">
+      <a class="btn-download" id="downloadBtn" href="#">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="7 10 12 15 17 10"/>
+          <line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        Download Extension
+      </a>
+      <div class="version-tag">v1.0.0 • Chrome Extension • Manifest V3</div>
+    </div>
+
+    <!-- Features -->
+    <div class="features">
+      <div class="feature">
+        <div class="feature-icon">📡</div>
+        <h4>Network Interception</h4>
+        <p>Catches bid data from AJAX responses before DOM renders</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">⚡</div>
+        <h4>30ms Polling</h4>
+        <p>33 checks/sec fallback for maximum detection speed</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">🎯</div>
+        <h4>Point & Click Setup</h4>
+        <p>No coding — just click the elements on the page</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">🛡️</div>
+        <h4>Max Bid Limit</h4>
+        <p>Set a ceiling and the bot stops automatically</p>
+      </div>
+    </div>
+
+    <!-- Install Steps -->
+    <div class="steps">
+      <h2>📦 Installation Steps</h2>
+
+      <div class="step">
+        <div class="step-number">1</div>
+        <div class="step-content">
+          <h3>Download & Unzip</h3>
+          <p>Click the download button above. Extract the ZIP file — you'll get a folder called <code>ireps-auto-bidder</code>.</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-number">2</div>
+        <div class="step-content">
+          <h3>Open Chrome Extensions</h3>
+          <p>In Chrome, go to <code>chrome://extensions</code> in the address bar. Turn ON <strong>"Developer mode"</strong> using the toggle in the top-right corner.</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-number">3</div>
+        <div class="step-content">
+          <h3>Load the Extension</h3>
+          <p>Click <strong>"Load unpacked"</strong> and select the unzipped <code>ireps-auto-bidder</code> folder. The ⚡ icon should appear in your Chrome toolbar.</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-number">4</div>
+        <div class="step-content">
+          <h3>Go to IREPS & Set Up</h3>
+          <p>Navigate to your IREPS auction page. You'll see a floating <strong>⚡ Auto Bidder</strong> panel. Click <strong>⚙️ Setup</strong> and point-and-click on the bid elements, then hit <strong>⚡ ARM</strong>.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- What to report -->
+    <div class="info-card">
+      <h3>🧪 Testing — What to Report Back</h3>
+      <ul>
+        <li><strong>Speed:</strong> How fast does it react? Check the Activity Log for <code>[via network]</code> vs <code>[via poll]</code></li>
+        <li><strong>Network URLs:</strong> What shows up in <code>📡 Network intercept</code> messages in the log?</li>
+        <li><strong>Confirmation dialogs:</strong> Does it auto-click OK/Confirm after bidding?</li>
+        <li><strong>Selectors:</strong> Did point-and-click setup pick the correct elements?</li>
+        <li><strong>Errors:</strong> Open DevTools (<code>F12</code>) → Console → filter for <code>[IREPS-Bot]</code></li>
+        <li><strong>Screenshots:</strong> Activity Log panel + DevTools console after a few bid cycles</li>
+      </ul>
+    </div>
+
+    <!-- Update instructions -->
+    <div class="update-section">
+      <h2>🔄 Updating to a New Version</h2>
+      <div class="step">
+        <div class="step-number">1</div>
+        <div class="step-content">
+          <h3>Re-download</h3>
+          <p>Come back to this page and download the ZIP again.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-number">2</div>
+        <div class="step-content">
+          <h3>Replace & Reload</h3>
+          <p>Extract over the old folder. Go to <code>chrome://extensions</code> and click the 🔄 reload button on the extension card. Your saved config will persist.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="info-card warning-card" style="margin-top: 32px;">
+      <h3>⚠️ Important</h3>
+      <p>This is a personal productivity tool. You must have a valid DSC to log in to IREPS. The extension runs entirely in your browser — no data is sent to any external server.</p>
+    </div>
+
+    <div class="footer">
+      <p>IREPS Auto Bidder v1.0.0 &mdash; For testing purposes only</p>
+    </div>
+  </div>
+
+  <script>
+    // Set download URL based on GitHub repo
+    // Replace OWNER and REPO with actual values
+    const owner = 'ryuk6911';
+    const repo = 'ireps-auto-bidder';
+    const downloadUrl = `https://github.com/${owner}/${repo}/archive/refs/heads/main.zip`;
+
+    document.getElementById('downloadBtn').href = downloadUrl;
+  </script>
+</body>
+</html>
