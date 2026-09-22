@@ -146,17 +146,30 @@
     const payload = event.data.payload;
     const now = Date.now();
 
-    // Debounce: skip if we just processed a network event <20ms ago
-    if (now - lastNetworkBidTimestamp < 20) return;
+    // Debounce: skip if we just processed a network event <15ms ago
+    if (now - lastNetworkBidTimestamp < 15) return;
     lastNetworkBidTimestamp = now;
 
-    log(`📡 Network intercept [${payload.source}]: ${payload.url?.substring(0, 60)}...`, 'info');
+    // Only log when there's actually new data (reduces noise)
+    if (payload.isNewData) {
+      const tag = payload.priority === 'high' ? '🔴' : '📡';
+      log(`${tag} Network [${payload.source}]: ${payload.url?.substring(payload.url.lastIndexOf('/') + 1, payload.url.lastIndexOf('/') + 50)}`, 'info');
 
-    // The page may not have updated the DOM yet — use requestAnimationFrame
-    // to check on the very next render frame (typically <16ms)
-    requestAnimationFrame(() => {
+      // If DWR parsing found bid values, log them for debugging
+      if (payload.dwrValues && payload.dwrValues.length > 0) {
+        log(`   └─ DWR values detected: [${payload.dwrValues.join(', ')}]`, 'info');
+      }
+    }
+
+    // High priority (known DWR endpoints) → check immediately, no rAF delay
+    if (payload.priority === 'high') {
       checkAndBid('network');
-    });
+    } else {
+      // Low priority → use rAF to check on next render frame
+      requestAnimationFrame(() => {
+        checkAndBid('network');
+      });
+    }
   });
 
   // ── Handle confirmation popups/modals ──
