@@ -28,10 +28,10 @@
 
   // ── Default selector hints (user will configure these) ──
   const DEFAULT_SELECTORS = {
-    currentBidDisplay: '', // Element showing the current highest bid
-    nextBidInput: '',      // Input field with the next valid bid amount
+    currentBidDisplay: '', // Element showing the current highest bid (display only)
+    nextBidInput: '',      // Input showing next valid bid amount (OUR TRIGGER)
+    bidAmountInput: '',    // Input where the actual bid amount must be entered
     bidButton: '',         // The submit/place bid button
-    extraInfo: ''         // Optional: who placed the last entry
   };
 
   // ── Logging ──
@@ -87,7 +87,39 @@
     return extractNumber(text);
   }
 
-  // ── Core: Click the bid button ──
+  // ── Core: Fill the bid amount input field ──
+  function fillBidAmount(value) {
+    if (!selectorConfig?.bidAmountInput) {
+      log('⚠️ No bid amount input configured — skipping fill', 'warn');
+      return false;
+    }
+    const el = getEl(selectorConfig.bidAmountInput);
+    if (!el) {
+      log(`❌ Bid amount input not found: ${selectorConfig.bidAmountInput}`, 'error');
+      return false;
+    }
+
+    // Set the value
+    const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+      window.HTMLInputElement.prototype, 'value'
+    )?.set;
+    if (nativeInputValueSetter) {
+      nativeInputValueSetter.call(el, value);
+    } else {
+      el.value = value;
+    }
+
+    // Dispatch events so the page's validation recognizes the new value
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+    el.dispatchEvent(new Event('blur', { bubbles: true }));
+    el.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
+
+    log(`📝 Filled bid amount: ₹${value} → ${selectorConfig.bidAmountInput}`, 'info');
+    return true;
+  }
+
+  // ── Core: Click the submit button ──
   function clickBidButton() {
     if (!selectorConfig?.bidButton) return false;
     const btn = getEl(selectorConfig.bidButton);
@@ -133,12 +165,17 @@
         return;
       }
 
-      // ACT NOW! The value is already pre-filled — just click submit!
+      // ACT NOW!
       log(`⚡ ACTING! Submitting ₹${nextBid}`, 'bid');
+
+      // Step 1: Fill the bid amount into the actual input field
+      const filled = fillBidAmount(nextBid);
+
+      // Step 2: Click submit
       const clicked = clickBidButton();
       if (clicked) {
         bidCount++;
-        log(`✅ Entry #${bidCount} placed! (₹${nextBid})`, 'success');
+        log(`✅ Entry #${bidCount} placed! (₹${nextBid})${filled ? '' : ' ⚠️ amount field not filled'}`, 'success');
         // Confirmation dialog handled by confirmObserver
       } else {
         log(`❌ Click failed! Selector: ${selectorConfig?.bidButton}`, 'error');
@@ -436,15 +473,19 @@
         <div class="ireps-bot-setup-panel" id="ireps-bot-setup-panel" style="display:none;">
           <p class="ireps-bot-setup-hint">Click a button below, then click the element on the page.</p>
           <div class="ireps-bot-selector-row">
-            <button data-field="currentBidDisplay" class="ireps-bot-sel-btn">📊 Current Bid Element</button>
+            <button data-field="currentBidDisplay" class="ireps-bot-sel-btn">📊 Current Bid (display)</button>
             <span class="ireps-bot-sel-status" id="sel-status-currentBidDisplay">❌</span>
           </div>
           <div class="ireps-bot-selector-row">
-            <button data-field="nextBidInput" class="ireps-bot-sel-btn">💰 Next Bid Input</button>
+            <button data-field="nextBidInput" class="ireps-bot-sel-btn">🔔 Next Bid Value (trigger)</button>
             <span class="ireps-bot-sel-status" id="sel-status-nextBidInput">❌</span>
           </div>
           <div class="ireps-bot-selector-row">
-            <button data-field="bidButton" class="ireps-bot-sel-btn">🖱️ Bid Button</button>
+            <button data-field="bidAmountInput" class="ireps-bot-sel-btn">✏️ Bid Amount Input (fill)</button>
+            <span class="ireps-bot-sel-status" id="sel-status-bidAmountInput">❌</span>
+          </div>
+          <div class="ireps-bot-selector-row">
+            <button data-field="bidButton" class="ireps-bot-sel-btn">🖱️ Submit Button</button>
             <span class="ireps-bot-sel-status" id="sel-status-bidButton">❌</span>
           </div>
           <div class="ireps-bot-input-row">
@@ -705,7 +746,7 @@
         if (pollInput) pollInput.value = data.nlConfig.pollSpeed || 100;
 
         // Update selector status icons
-        for (const field of ['currentBidDisplay', 'nextBidInput', 'bidButton']) {
+        for (const field of ['currentBidDisplay', 'nextBidInput', 'bidAmountInput', 'bidButton']) {
           const statusEl = document.getElementById(`sel-status-${field}`);
           if (statusEl) statusEl.textContent = selectorConfig[field] ? '✅' : '❌';
         }
@@ -724,9 +765,9 @@
         isArmed,
         bidCount,
         maxBidLimit: maxBidLimit === Infinity ? null : maxBidLimit,
-        currentBid: readCurrentBid(),
+        currentBid: readCurrentBidForDisplay(),
         nextBid: readNextBidAmount(),
-        configured: !!(selectorConfig?.currentBidDisplay && selectorConfig?.bidButton)
+        configured: !!(selectorConfig?.nextBidInput && selectorConfig?.bidAmountInput && selectorConfig?.bidButton)
       });
     } else if (message.action === 'arm') {
       setArmed(true);
@@ -753,7 +794,7 @@
       log('⚙️ Click "Setup" to configure element selectors.', 'info');
 
       // Check if selectors are configured
-      if (selectorConfig?.currentBidDisplay && selectorConfig?.bidButton) {
+      if (selectorConfig?.nextBidInput && selectorConfig?.bidAmountInput && selectorConfig?.bidButton) {
         log('✅ Selectors configured. Ready to arm.', 'success');
       } else {
         log('⚠️ Selectors not configured. Use Setup to point at page elements.', 'warn');
