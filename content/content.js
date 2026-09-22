@@ -66,12 +66,32 @@
   }
 
   // ── Core: Read current bid from page ──
+  let diagLogCounter = 0;
   function readCurrentBid() {
     if (!selectorConfig?.currentBidDisplay) return null;
     const el = getEl(selectorConfig.currentBidDisplay);
-    if (!el) return null;
-    const text = el.value !== undefined && el.value !== '' ? el.value : el.textContent;
-    return extractNumber(text);
+    if (!el) {
+      // Element disappeared — DWR may have replaced the DOM
+      diagLogCounter++;
+      if (diagLogCounter % 100 === 1) {
+        log(`⚠️ DIAG: Element ${selectorConfig.currentBidDisplay} NOT FOUND in DOM!`, 'warn');
+      }
+      return null;
+    }
+    // Read from value (inputs) or textContent (spans/divs) or innerHTML
+    let text = '';
+    if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT') {
+      text = el.value || '';
+    } else {
+      text = el.textContent || el.innerText || el.innerHTML || '';
+    }
+    const num = extractNumber(text);
+    // Periodic diagnostic: log what we're reading (every ~5 seconds at 30ms poll = ~166 calls)
+    diagLogCounter++;
+    if (diagLogCounter % 166 === 0) {
+      log(`🔍 DIAG: selector=${selectorConfig.currentBidDisplay} | raw="${text.trim().substring(0, 30)}" | parsed=${num} | lastKnown=${lastKnownBid}`, 'info');
+    }
+    return num;
   }
 
   // ── Core: Read next bid amount (pre-filled by the page) ──
@@ -107,7 +127,11 @@
     const currentBid = readCurrentBid();
     const nextBidAmount = readNextBidAmount();
 
-    if (currentBid === null) return;
+    if (currentBid === null) {
+      // Element might have been replaced by DWR — try to re-acquire observer
+      reacquireObserverIfNeeded();
+      return;
+    }
 
     // Detect if bid changed
     if (lastKnownBid !== null && currentBid !== lastKnownBid) {
@@ -130,11 +154,29 @@
 
         // Confirmation dialog is handled by the dedicated confirmObserver
         // which fires the instant a modal/dialog enters the DOM — no delay.
+      } else {
+        log(`❌ Click failed! Check bidButton selector: ${selectorConfig?.bidButton}`, 'error');
       }
     }
 
     lastKnownBid = currentBid;
     updateOverlayCurrentBid(currentBid, nextBidAmount);
+  }
+
+  // ── Re-acquire MutationObserver if bid element was replaced ──
+  let lastReacquireAttempt = 0;
+  function reacquireObserverIfNeeded() {
+    const now = Date.now();
+    if (now - lastReacquireAttempt < 2000) return; // Don't spam, try every 2s
+    lastReacquireAttempt = now;
+
+    if (!selectorConfig?.currentBidDisplay) return;
+    const el = getEl(selectorConfig.currentBidDisplay);
+    if (el) {
+      log('🔄 Bid element re-appeared in DOM — re-targeting observer', 'info');
+      startObserver();
+      lastKnownBid = readCurrentBid();
+    }
   }
 
   // ── Network Intercept: Listen for bid data from MAIN world interceptor ──
