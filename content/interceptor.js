@@ -234,6 +234,80 @@
     window.WebSocket.CLOSING = OrigWebSocket.CLOSING;
     window.WebSocket.CLOSED = OrigWebSocket.CLOSED;
   }
+  // ═══════════════════════════════════════════
+  //  VALUE SETTER HOOK — Instant detection
+  //  When DWR does element.value = X, this fires
+  //  BEFORE any MutationObserver or polling.
+  // ═══════════════════════════════════════════
+
+  function hookValueSetter(elementId) {
+    const el = document.getElementById(elementId);
+    if (!el) return false;
+
+    const descriptor = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype, 'value'
+    );
+    if (!descriptor) return false;
+
+    let lastHookedValue = el.value;
+
+    Object.defineProperty(el, 'value', {
+      get() {
+        return descriptor.get.call(this);
+      },
+      set(newVal) {
+        const oldVal = descriptor.get.call(this);
+        descriptor.set.call(this, newVal);
+
+        // Only fire if value actually changed
+        if (String(newVal) !== String(oldVal) && String(newVal) !== String(lastHookedValue)) {
+          lastHookedValue = newVal;
+          window.postMessage({
+            type: SIGNATURE,
+            payload: {
+              url: 'value-setter-hook',
+              source: 'setter',
+              priority: 'high',
+              timestamp: Date.now(),
+              isNewData: true,
+              dwrValues: [parseFloat(String(newVal).replace(/[₹$,\s]/g, ''))].filter(n => !isNaN(n)),
+              isDwr: true,
+              rawText: `${elementId}: ${oldVal} → ${newVal}`
+            }
+          }, '*');
+        }
+      },
+      configurable: true
+    });
+
+    return true;
+  }
+
+  // Hook the known input elements — retry until they exist in DOM
+  function tryHookInputs() {
+    const targets = ['calculatedMinBidRate'];
+    let allHooked = true;
+
+    for (const id of targets) {
+      if (!hookValueSetter(id)) {
+        allHooked = false;
+      }
+    }
+
+    if (!allHooked) {
+      // Elements not in DOM yet — retry after a short delay
+      setTimeout(tryHookInputs, 500);
+    } else {
+      console.log('[NL] Value setter hooks active — instant detection enabled');
+    }
+  }
+
+  // Start hooking once DOM is ready
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', tryHookInputs);
+  } else {
+    tryHookInputs();
+  }
 
   console.log('[NL] Network interceptor active (XHR + fetch + WebSocket)');
 })();

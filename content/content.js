@@ -13,7 +13,7 @@
   // ── State ──
   let isArmed = false;
   let maxBidLimit = Infinity;
-  let lastKnownBid = null;
+  let lastKnownNextBid = null;  // Track the NEXT bid input value (our trigger)
   let bidCount = 0;
   let observer = null;
   let confirmObserver = null;
@@ -24,6 +24,7 @@
   let highlightedEl = null;
   let logs = [];
   let lastNetworkBidTimestamp = 0;
+  let lastActTimestamp = 0;  // Prevent double-acting within a short window
 
   // ── Default selector hints (user will configure these) ──
   const DEFAULT_SELECTORS = {
@@ -65,42 +66,24 @@
     }
   }
 
-  // ── Core: Read current bid from page ──
-  let diagLogCounter = 0;
-  function readCurrentBid() {
-    if (!selectorConfig?.currentBidDisplay) return null;
-    const el = getEl(selectorConfig.currentBidDisplay);
-    if (!el) {
-      // Element disappeared — DWR may have replaced the DOM
-      diagLogCounter++;
-      if (diagLogCounter % 100 === 1) {
-        log(`⚠️ DIAG: Element ${selectorConfig.currentBidDisplay} NOT FOUND in DOM!`, 'warn');
-      }
-      return null;
-    }
-    // Read from value (inputs) or textContent (spans/divs) or innerHTML
-    let text = '';
-    if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT') {
-      text = el.value || '';
-    } else {
-      text = el.textContent || el.innerText || el.innerHTML || '';
-    }
-    const num = extractNumber(text);
-    // Periodic diagnostic: log what we're reading (every ~5 seconds at 30ms poll = ~166 calls)
-    diagLogCounter++;
-    if (diagLogCounter % 166 === 0) {
-      log(`🔍 DIAG: selector=${selectorConfig.currentBidDisplay} | raw="${text.trim().substring(0, 30)}" | parsed=${num} | lastKnown=${lastKnownBid}`, 'info');
-    }
-    return num;
-  }
-
-  // ── Core: Read next bid amount (pre-filled by the page) ──
+  // ── Core: Read next bid amount (the value IREPS pre-fills — THIS IS OUR TRIGGER) ──
   function readNextBidAmount() {
     if (!selectorConfig?.nextBidInput) return null;
     const el = getEl(selectorConfig.nextBidInput);
+    if (!el) {
+      return null;
+    }
+    // This is typically an input field — read .value
+    const text = el.value || el.textContent || '';
+    return extractNumber(text);
+  }
+
+  // ── Core: Read current bid from page (for DISPLAY only, not detection) ──
+  function readCurrentBidForDisplay() {
+    if (!selectorConfig?.currentBidDisplay) return null;
+    const el = getEl(selectorConfig.currentBidDisplay);
     if (!el) return null;
-    // Could be an input or a span/div
-    const text = el.value !== undefined && el.value !== '' ? el.value : el.textContent;
+    const text = el.value || el.textContent || '';
     return extractNumber(text);
   }
 
@@ -109,74 +92,61 @@
     if (!selectorConfig?.bidButton) return false;
     const btn = getEl(selectorConfig.bidButton);
     if (!btn) {
-      log('❌ Bid button not found!', 'error');
+      log('❌ Submit button not found!', 'error');
       return false;
     }
     if (btn.disabled) {
-      log('⚠️ Bid button is disabled, skipping', 'warn');
+      log('⚠️ Submit button is disabled, skipping', 'warn');
       return false;
     }
     btn.click();
     return true;
   }
 
-  // ── Core: The bid check logic ──
+  // ── Core: The detection logic ──
+  // Watches #calculatedMinBidRate — when it changes, someone just bid.
+  // The new value IS the next valid bid — just click submit.
   function checkAndBid(source = 'poll') {
     if (!isArmed) return;
 
-    const currentBid = readCurrentBid();
-    const nextBidAmount = readNextBidAmount();
+    const nextBid = readNextBidAmount();
+    if (nextBid === null) return;
 
-    if (currentBid === null) {
-      // Element might have been replaced by DWR — try to re-acquire observer
-      reacquireObserverIfNeeded();
-      return;
-    }
+    // Detect if the next bid value changed
+    if (lastKnownNextBid !== null && nextBid !== lastKnownNextBid) {
+      const now = Date.now();
 
-    // Detect if bid changed
-    if (lastKnownBid !== null && currentBid !== lastKnownBid) {
-      log(`🔔 Bid changed! ${lastKnownBid} → ${currentBid} [via ${source}]`, 'alert');
+      // Prevent double-acting (e.g., if both network + poll detect same change)
+      if (now - lastActTimestamp < 500) {
+        lastKnownNextBid = nextBid;
+        return;
+      }
+      lastActTimestamp = now;
+
+      log(`🔔 CHANGE DETECTED! Next bid: ₹${lastKnownNextBid} → ₹${nextBid} [via ${source}]`, 'alert');
 
       // Check if next bid exceeds our max limit
-      if (nextBidAmount !== null && nextBidAmount > maxBidLimit) {
-        log(`🛑 Next bid ₹${nextBidAmount} exceeds max limit ₹${maxBidLimit}. STOPPING.`, 'warn');
+      if (nextBid > maxBidLimit) {
+        log(`🛑 Next bid ₹${nextBid} exceeds max limit ₹${maxBidLimit}. STOPPING.`, 'warn');
         setArmed(false);
         updateOverlayStatus();
         return;
       }
 
-      // ACT NOW!
-      log(`⚡ Acting! Placing entry: ₹${nextBidAmount || '(page default)'}`, 'bid');
+      // ACT NOW! The value is already pre-filled — just click submit!
+      log(`⚡ ACTING! Submitting ₹${nextBid}`, 'bid');
       const clicked = clickBidButton();
       if (clicked) {
         bidCount++;
-        log(`✅ Bid #${bidCount} placed successfully!`, 'success');
-
-        // Confirmation dialog is handled by the dedicated confirmObserver
-        // which fires the instant a modal/dialog enters the DOM — no delay.
+        log(`✅ Entry #${bidCount} placed! (₹${nextBid})`, 'success');
+        // Confirmation dialog handled by confirmObserver
       } else {
-        log(`❌ Click failed! Check bidButton selector: ${selectorConfig?.bidButton}`, 'error');
+        log(`❌ Click failed! Selector: ${selectorConfig?.bidButton}`, 'error');
       }
     }
 
-    lastKnownBid = currentBid;
-    updateOverlayCurrentBid(currentBid, nextBidAmount);
-  }
-
-  // ── Re-acquire MutationObserver if bid element was replaced ──
-  let lastReacquireAttempt = 0;
-  function reacquireObserverIfNeeded() {
-    const now = Date.now();
-    if (now - lastReacquireAttempt < 2000) return; // Don't spam, try every 2s
-    lastReacquireAttempt = now;
-
-    if (!selectorConfig?.currentBidDisplay) return;
-    const el = getEl(selectorConfig.currentBidDisplay);
-    if (el) {
-      log('🔄 Bid element re-appeared in DOM — re-targeting observer', 'info');
-      startObserver();
-      lastKnownBid = readCurrentBid();
-    }
+    lastKnownNextBid = nextBid;
+    updateOverlayCurrentBid(readCurrentBidForDisplay(), nextBid);
   }
 
   // ── Network Intercept: Listen for bid data from MAIN world interceptor ──
@@ -261,14 +231,14 @@
     return el.offsetParent !== null || el.style.display !== 'none';
   }
 
-  // ── MutationObserver: Watch for DOM changes on bid element ──
+  // ── MutationObserver: Watch the NEXT BID INPUT for changes ──
   function startObserver() {
     if (observer) observer.disconnect();
 
-    // Try to observe just the bid display element for precision
+    // Target the next bid input element — this is what changes when someone bids
     let target = null;
-    if (selectorConfig?.currentBidDisplay) {
-      target = getEl(selectorConfig.currentBidDisplay);
+    if (selectorConfig?.nextBidInput) {
+      target = getEl(selectorConfig.nextBidInput);
     }
 
     observer = new MutationObserver((mutations) => {
@@ -277,25 +247,43 @@
     });
 
     if (target) {
-      // Targeted: observe only the bid element and its subtree
+      // Watch the input element for attribute changes (value, etc.)
       observer.observe(target, {
-        childList: true,
-        subtree: true,
-        characterData: true,
         attributes: true,
-        attributeFilter: ['value', 'textContent', 'innerHTML']
+        attributeFilter: ['value'],
+        childList: true,
+        characterData: true,
+        subtree: true
       });
-      log('👁️ MutationObserver started (targeted on bid element)', 'info');
+
+      // Also watch the PARENT for child replacement (DWR might replace the element)
+      if (target.parentElement) {
+        const parentObserver = new MutationObserver(() => {
+          if (!isArmed) return;
+          checkAndBid('parent-mutation');
+        });
+        parentObserver.observe(target.parentElement, {
+          childList: true,
+          subtree: true,
+          characterData: true
+        });
+      }
+
+      // Direct event listeners on the input (catches programmatic changes)
+      target.addEventListener('input', () => { if (isArmed) checkAndBid('input-event'); });
+      target.addEventListener('change', () => { if (isArmed) checkAndBid('change-event'); });
+
+      log(`👁️ Observer watching: ${selectorConfig.nextBidInput} (next bid input)`, 'info');
     } else {
-      // Fallback: observe entire body if bid element not found yet
+      // Fallback: observe entire body
       observer.observe(document.body, {
         childList: true,
         subtree: true,
         characterData: true,
         attributes: true,
-        attributeFilter: ['value', 'textContent', 'innerHTML']
+        attributeFilter: ['value']
       });
-      log('👁️ MutationObserver started (full body — bid element not found)', 'info');
+      log('👁️ Observer watching: full body (next bid input not found)', 'info');
     }
   }
 
@@ -383,8 +371,10 @@
   function setArmed(armed) {
     isArmed = armed;
     if (armed) {
-      lastKnownBid = readCurrentBid();
-      log(`🟢 ARMED! Watching for bid changes. Current bid: ₹${lastKnownBid || 'unknown'}`, 'success');
+      lastKnownNextBid = readNextBidAmount();
+      const displayBid = readCurrentBidForDisplay();
+      log(`🟢 ARMED! Watching next bid input for changes.`, 'success');
+      log(`   Current next bid: ₹${lastKnownNextBid || 'unknown'} | Display: ₹${displayBid || 'unknown'}`, 'info');
       startObserver();
       startConfirmObserver();
       const pollSpeed = parseInt(document.getElementById('ireps-bot-poll-input')?.value) || 30;
@@ -396,7 +386,6 @@
       stopPolling();
     }
     updateOverlayStatus();
-    // Persist state
     chrome.storage.local.set({ isArmed: armed });
   }
 
