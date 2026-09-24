@@ -13,6 +13,7 @@
   // ── State ──
   let isArmed = false;
   let maxBidLimit = Infinity;
+  let maxJumpLimit = Infinity;  // Max allowed jump between consecutive bids
   let lastKnownNextBid = null;  // Track the NEXT bid input value (our trigger)
   let bidCount = 0;
   let observer = null;
@@ -160,6 +161,15 @@
       // Check if next bid exceeds our max limit
       if (nextBid > maxBidLimit) {
         log(`🛑 Next bid ₹${nextBid} exceeds max limit ₹${maxBidLimit}. STOPPING.`, 'warn');
+        setArmed(false);
+        updateOverlayStatus();
+        return;
+      }
+
+      // Check for suspicious spike (bait protection)
+      const jump = nextBid - lastKnownNextBid;
+      if (maxJumpLimit !== Infinity && jump > maxJumpLimit) {
+        log(`🚨 SPIKE BLOCKED! Jump ₹${lastKnownNextBid} → ₹${nextBid} (Δ₹${jump.toFixed(2)}) exceeds max jump ₹${maxJumpLimit}. PAUSED.`, 'warn');
         setArmed(false);
         updateOverlayStatus();
         return;
@@ -493,6 +503,10 @@
             <input type="number" id="ireps-bot-max-input" placeholder="No limit" />
           </div>
           <div class="ireps-bot-input-row">
+            <label for="ireps-bot-max-jump-input">Max Jump Limit (₹):</label>
+            <input type="number" id="ireps-bot-max-jump-input" placeholder="No limit" />
+          </div>
+          <div class="ireps-bot-input-row">
             <label for="ireps-bot-poll-input">Poll Speed (ms):</label>
             <input type="number" id="ireps-bot-poll-input" value="30" min="20" max="2000" />
           </div>
@@ -712,16 +726,21 @@
   // ── Save config to chrome.storage ──
   function saveConfig() {
     const maxInput = document.getElementById('ireps-bot-max-input');
+    const maxJumpInput = document.getElementById('ireps-bot-max-jump-input');
     const pollInput = document.getElementById('ireps-bot-poll-input');
 
     const val = parseFloat(maxInput.value);
     maxBidLimit = isNaN(val) || val <= 0 ? Infinity : val;
+
+    const jumpVal = parseFloat(maxJumpInput?.value);
+    maxJumpLimit = isNaN(jumpVal) || jumpVal <= 0 ? Infinity : jumpVal;
 
     const pollSpeed = parseInt(pollInput.value) || 100;
 
     const config = {
       selectors: selectorConfig,
       maxBidLimit: maxBidLimit === Infinity ? null : maxBidLimit,
+      maxJumpLimit: maxJumpLimit === Infinity ? null : maxJumpLimit,
       pollSpeed
     };
 
@@ -737,10 +756,14 @@
       if (data.nlConfig) {
         selectorConfig = data.nlConfig.selectors || { ...DEFAULT_SELECTORS };
         maxBidLimit = data.nlConfig.maxBidLimit || Infinity;
+        maxJumpLimit = data.nlConfig.maxJumpLimit || Infinity;
 
         // Update UI
         const maxInput = document.getElementById('ireps-bot-max-input');
         if (maxInput && maxBidLimit !== Infinity) maxInput.value = maxBidLimit;
+
+        const maxJumpInput = document.getElementById('ireps-bot-max-jump-input');
+        if (maxJumpInput && maxJumpLimit !== Infinity) maxJumpInput.value = maxJumpLimit;
 
         const pollInput = document.getElementById('ireps-bot-poll-input');
         if (pollInput) pollInput.value = data.nlConfig.pollSpeed || 100;
