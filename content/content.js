@@ -914,14 +914,6 @@
             <input type="number" id="ireps-bot-max-jump-input" placeholder="No limit" />
           </div>
           <div class="ireps-bot-input-row">
-            <label for="ireps-bot-lock-delay-input">Lock Delay (s):</label>
-            <input type="number" id="ireps-bot-lock-delay-input" value="5" min="1" max="60" />
-          </div>
-          <div class="ireps-bot-input-row">
-            <label for="ireps-bot-lock-duration-input">Lock Duration (s):</label>
-            <input type="number" id="ireps-bot-lock-duration-input" value="45" min="15" max="120" />
-          </div>
-          <div class="ireps-bot-input-row">
             <label for="ireps-bot-poll-input">Poll Speed (ms):</label>
             <input type="number" id="ireps-bot-poll-input" value="30" min="20" max="2000" />
           </div>
@@ -1228,8 +1220,6 @@
     const maxInput = document.getElementById('ireps-bot-max-input');
     const maxJumpInput = document.getElementById('ireps-bot-max-jump-input');
     const pollInput = document.getElementById('ireps-bot-poll-input');
-    const delayInput = document.getElementById('ireps-bot-lock-delay-input');
-    const durationInput = document.getElementById('ireps-bot-lock-duration-input');
 
     const val = parseFloat(maxInput.value);
     maxBidLimit = isNaN(val) || val <= 0 ? Infinity : val;
@@ -1237,11 +1227,8 @@
     const jumpVal = parseFloat(maxJumpInput?.value);
     maxJumpLimit = isNaN(jumpVal) || jumpVal <= 0 ? Infinity : jumpVal;
 
-    const delayVal = parseInt(delayInput?.value);
-    lockDelay = isNaN(delayVal) || delayVal <= 0 ? 5 : delayVal;
-
-    const durationVal = parseInt(durationInput?.value);
-    lockDuration = isNaN(durationVal) || durationVal <= 0 ? 45 : durationVal;
+    lockDelay = 5;
+    lockDuration = 45;
 
     const pollSpeed = parseInt(pollInput.value) || 100;
 
@@ -1268,8 +1255,8 @@
         selectorConfig = data.nlConfig.selectors || { ...DEFAULT_SELECTORS };
         maxBidLimit = data.nlConfig.maxBidLimit || Infinity;
         maxJumpLimit = data.nlConfig.maxJumpLimit || Infinity;
-        lockDelay = data.nlConfig.lockDelay || 5;
-        lockDuration = data.nlConfig.lockDuration || 45;
+        lockDelay = 5;
+        lockDuration = 45;
         totpSecret = data.nlConfig.totpSecret || 'SKP63DSLYZ4MH6DY4FM5WNQJW2RLK5NK';
 
         // Render QR in setup
@@ -1281,12 +1268,6 @@
 
         const maxJumpInput = document.getElementById('ireps-bot-max-jump-input');
         if (maxJumpInput && maxJumpLimit !== Infinity) maxJumpInput.value = maxJumpLimit;
-
-        const delayInput = document.getElementById('ireps-bot-lock-delay-input');
-        if (delayInput) delayInput.value = lockDelay;
-
-        const durationInput = document.getElementById('ireps-bot-lock-duration-input');
-        if (durationInput) durationInput.value = lockDuration;
 
         const pollInput = document.getElementById('ireps-bot-poll-input');
         if (pollInput) pollInput.value = data.nlConfig.pollSpeed || 100;
