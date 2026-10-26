@@ -40,6 +40,7 @@
     <div class="popup-controls">
       <button id="btn-arm" class="popup-btn btn-arm">⚡ ARM</button>
       <button id="btn-disarm" class="popup-btn btn-disarm" style="display:none;">🛑 DISARM</button>
+      <button id="btn-lock" class="popup-btn btn-lock">🔒 LOCK BID</button>
     </div>
 
     <div class="popup-max-bid">
@@ -48,10 +49,25 @@
       <button id="btn-set-limit" class="popup-btn btn-small">Set</button>
     </div>
 
+    <!-- Authenticator Modal for Popup -->
+    <div class="popup-auth-modal" id="popup-auth-modal" style="display:none;">
+      <div class="popup-auth-card">
+        <div class="popup-auth-title">🔐 Authenticator Code</div>
+        <p class="popup-auth-hint">Enter 6-digit code to LOCK BID</p>
+        <input type="text" id="popup-auth-input" maxlength="6" inputmode="numeric" placeholder="••••••" autocomplete="off" />
+        <div id="popup-auth-error" class="popup-auth-error"></div>
+        <div class="popup-auth-actions">
+          <button id="popup-auth-submit" class="popup-btn btn-arm">Verify & Lock</button>
+          <button id="popup-auth-cancel" class="popup-btn btn-small">Cancel</button>
+        </div>
+      </div>
+    </div>
+
     <div class="popup-footer">
       <p id="config-status">⚙️ Open target page → use overlay to configure.</p>
     </div>
   </div>
+  <script src="qrcode.min.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

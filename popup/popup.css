@@ -16,6 +16,8 @@ body {
 }
 
 .popup-container {
+  position: relative;
+  min-height: 250px;
   padding: 16px;
   display: flex;
   flex-direction: column;
@@ -79,9 +81,26 @@ body {
   background: #666;
 }
 
+.status-dot.locking {
+  background: #f59e0b;
+  box-shadow: 0 0 8px #f59e0b;
+  animation: pulse-fast 0.6s ease-in-out infinite;
+}
+
+.status-dot.locked {
+  background: #38bdf8;
+  box-shadow: 0 0 8px #38bdf8;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
+}
+
+@keyframes pulse-fast {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(1.25); }
 }
 
 /* ── Info rows ── */
@@ -151,6 +170,28 @@ body {
   box-shadow: 0 4px 20px rgba(255, 23, 68, 0.4);
 }
 
+.btn-lock {
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  color: #fff;
+  box-shadow: 0 2px 12px rgba(245, 158, 11, 0.25);
+}
+
+.btn-lock:hover {
+  box-shadow: 0 4px 20px rgba(245, 158, 11, 0.45);
+  transform: translateY(-1px);
+}
+
+.btn-lock.is-counting {
+  background: linear-gradient(135deg, #ea580c, #c2410c);
+  animation: pulse-fast 0.7s ease-in-out infinite;
+  box-shadow: 0 0 15px rgba(234, 88, 12, 0.6);
+}
+
+.btn-lock.is-locked {
+  background: linear-gradient(135deg, #0284c7, #0369a1);
+  box-shadow: 0 0 15px rgba(2, 132, 199, 0.6);
+}
+
 .btn-small {
   flex: none;
   padding: 6px 12px;
@@ -204,4 +245,69 @@ body {
 
 .popup-footer p {
   line-height: 1.5;
+}
+
+/* ── Popup Authenticator Modal ── */
+.popup-auth-modal {
+  position: absolute;
+  inset: 0;
+  background: rgba(10, 15, 30, 0.96);
+  backdrop-filter: blur(10px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: 100;
+  border-radius: 12px;
+  animation: nl-fade-in 0.2s ease-out;
+}
+
+.popup-auth-card {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  text-align: center;
+}
+
+.popup-auth-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #38bdf8;
+}
+
+.popup-auth-hint {
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+#popup-auth-input {
+  width: 100%;
+  padding: 8px 10px;
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  border-radius: 8px;
+  color: #38bdf8;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 6px;
+  text-align: center;
+  font-family: 'Consolas', monospace;
+  outline: none;
+}
+
+#popup-auth-input:focus {
+  border-color: #38bdf8;
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.4);
+}
+
+.popup-auth-error {
+  font-size: 11px;
+  color: #ff5252;
+  min-height: 16px;
+}
+
+.popup-auth-actions {
+  display: flex;
+  gap: 8px;
 }

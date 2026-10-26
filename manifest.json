@@ -35,7 +35,7 @@
         "http://ireps.gov.in/*",
         "http://*.ireps.gov.in/*"
       ],
-      "js": ["content/content.js"],
+      "js": ["content/qrcode.min.js", "content/content.js"],
       "css": ["content/overlay.css"],
       "run_at": "document_idle"
     }

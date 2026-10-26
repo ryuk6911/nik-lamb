@@ -139,6 +139,73 @@
   }
 
   // ═══════════════════════════════════════════
+  //  STATIC LOCK ENFORCEMENT
+  //  Blocks manual and automated bid requests
+  // ═══════════════════════════════════════════
+
+  let isSystemLocked = false;
+
+  window.addEventListener('message', function (event) {
+    if (event.source !== window) return;
+    if (event.data?.type === 'nl-set-lock') {
+      isSystemLocked = !!event.data.isLocked;
+      console.log(`[NL] Network static lock: ${isSystemLocked ? 'ACTIVE (All outgoing bids blocked)' : 'INACTIVE'}`);
+    }
+  });
+
+  function isBidSubmitUrl(url) {
+    if (!url) return false;
+    const lower = String(url).toLowerCase();
+    return /bid|auction|eauction|lot|price|rate|submit|save|bidding/i.test(lower);
+  }
+
+  // Hook form submit to prevent programmatic form submission during lock
+  if (typeof HTMLFormElement !== 'undefined' && HTMLFormElement.prototype) {
+    const origFormSubmit = HTMLFormElement.prototype.submit;
+    HTMLFormElement.prototype.submit = function (...args) {
+      if (isSystemLocked) {
+        console.warn('[NL] HTMLFormElement.submit() BLOCKED by STATIC LOCK');
+        return;
+      }
+      return origFormSubmit.apply(this, args);
+    };
+  }
+
+  // Hook button/input .click() calls from page scripts during lock
+  if (typeof HTMLButtonElement !== 'undefined' && HTMLButtonElement.prototype) {
+    const origButtonClick = HTMLButtonElement.prototype.click;
+    HTMLButtonElement.prototype.click = function (...args) {
+      if (isSystemLocked && !this.closest?.('#ireps-bot-overlay')) {
+        console.warn('[NL] button.click() BLOCKED by STATIC LOCK');
+        return;
+      }
+      return origButtonClick.apply(this, args);
+    };
+  }
+
+  if (typeof HTMLInputElement !== 'undefined' && HTMLInputElement.prototype) {
+    const origInputClick = HTMLInputElement.prototype.click;
+    HTMLInputElement.prototype.click = function (...args) {
+      if (isSystemLocked && !this.closest?.('#ireps-bot-overlay')) {
+        console.warn('[NL] input.click() BLOCKED by STATIC LOCK');
+        return;
+      }
+      return origInputClick.apply(this, args);
+    };
+  }
+
+  // Block submit events in capturing phase
+  window.addEventListener('submit', function (e) {
+    if (isSystemLocked) {
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      console.warn('[NL] Form submit event BLOCKED by STATIC LOCK');
+      return false;
+    }
+  }, true);
+
+  // ═══════════════════════════════════════════
   //  PATCH XMLHttpRequest
   // ═══════════════════════════════════════════
 
@@ -154,6 +221,15 @@
 
   OrigXHR.prototype.send = function (...args) {
     const xhr = this;
+
+    // Static lock: block outgoing bid submissions
+    if (isSystemLocked && (this._nlMethod === 'POST' || isBidSubmitUrl(this._nlUrl))) {
+      console.warn('[NL] Outgoing XHR bid submission BLOCKED by STATIC LOCK:', this._nlUrl);
+      try {
+        xhr.abort();
+      } catch {}
+      return;
+    }
 
     xhr.addEventListener('load', function () {
       try {
@@ -188,6 +264,12 @@
     const url = typeof input === 'string'
       ? input
       : (input instanceof Request ? input.url : String(input));
+
+    // Static lock: block outgoing fetch bid submissions
+    if (isSystemLocked && (init?.method?.toUpperCase() === 'POST' || isBidSubmitUrl(url))) {
+      console.warn('[NL] Outgoing fetch bid submission BLOCKED by STATIC LOCK:', url);
+      return Promise.reject(new Error('[NL] Outgoing bid blocked by STATIC LOCK'));
+    }
 
     return origFetch.call(this, input, init).then(response => {
       const clone = response.clone();
