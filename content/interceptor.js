@@ -149,7 +149,6 @@
     if (event.source !== window) return;
     if (event.data?.type === 'nl-set-lock') {
       isSystemLocked = !!event.data.isLocked;
-      console.log(`[NL] Network static lock: ${isSystemLocked ? 'ACTIVE (All outgoing bids blocked)' : 'INACTIVE'}`);
     }
   });
 
@@ -164,35 +163,52 @@
     const origFormSubmit = HTMLFormElement.prototype.submit;
     HTMLFormElement.prototype.submit = function (...args) {
       if (isSystemLocked) {
-        console.warn('[NL] HTMLFormElement.submit() BLOCKED by STATIC LOCK');
         return;
       }
       return origFormSubmit.apply(this, args);
     };
   }
 
-  // Hook button/input .click() calls from page scripts during lock
+  // Hook button .click() calls from page scripts during lock
   if (typeof HTMLButtonElement !== 'undefined' && HTMLButtonElement.prototype) {
     const origButtonClick = HTMLButtonElement.prototype.click;
     HTMLButtonElement.prototype.click = function (...args) {
       if (isSystemLocked && !this.closest?.('#ireps-bot-overlay')) {
-        console.warn('[NL] button.click() BLOCKED by STATIC LOCK');
         return;
       }
       return origButtonClick.apply(this, args);
     };
   }
 
+  // Hook input .click() calls (only block submit/button clicks; allow text/number input clicks)
   if (typeof HTMLInputElement !== 'undefined' && HTMLInputElement.prototype) {
     const origInputClick = HTMLInputElement.prototype.click;
     HTMLInputElement.prototype.click = function (...args) {
-      if (isSystemLocked && !this.closest?.('#ireps-bot-overlay')) {
-        console.warn('[NL] input.click() BLOCKED by STATIC LOCK');
+      if (isSystemLocked && (this.type === 'submit' || this.type === 'button') && !this.closest?.('#ireps-bot-overlay')) {
         return;
       }
       return origInputClick.apply(this, args);
     };
   }
+
+  // Block submit button clicks in capturing phase (bid box inputs remain completely active)
+  function blockSubmitClick(e) {
+    if (!isSystemLocked) return;
+    const target = e.target;
+    if (!target || target.closest?.('#ireps-bot-overlay')) return;
+
+    const btn = target.closest?.('button, input[type="submit"], input[type="button"], a[onclick*="bid" i], a[onclick*="submit" i], [role="button"]');
+    if (btn) {
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      return false;
+    }
+  }
+
+  window.addEventListener('click', blockSubmitClick, true);
+  window.addEventListener('mousedown', blockSubmitClick, true);
+  window.addEventListener('touchstart', blockSubmitClick, true);
 
   // Block submit events in capturing phase
   window.addEventListener('submit', function (e) {
@@ -200,7 +216,6 @@
       e.preventDefault();
       e.stopPropagation();
       e.stopImmediatePropagation();
-      console.warn('[NL] Form submit event BLOCKED by STATIC LOCK');
       return false;
     }
   }, true);

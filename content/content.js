@@ -27,22 +27,20 @@
   let lastNetworkBidTimestamp = 0;
   let lastActTimestamp = 0;  // Prevent double-acting within a short window
 
-  // ── Static Lock State (5s delay -> 15s freeze) ──
+  // ── Static Lock State (5s delay -> 45s freeze) ──
   let lockState = 'idle'; // 'idle' | 'countdown' | 'locked'
   let isLocked = false;
   let lockDelay = 5;          // seconds before lock engages (default: 5)
-  let lockDuration = 15;      // seconds lock remains active (default: 15)
+  let lockDuration = 45;      // seconds lock remains active (default: 45)
   let lockCountdownRemaining = 0;
   let lockDurationRemaining = 0;
   let lockCountdownTimer = null;
   let lockDurationTimer = null;
   let lockShield = null;
-  const originalDisabledElements = new Map();
   const blockedEvents = [
     'click', 'dblclick', 'mousedown', 'mouseup',
     'pointerdown', 'pointerup', 'touchstart', 'touchend',
-    'keydown', 'keypress', 'keyup',
-    'submit', 'input', 'change', 'contextmenu'
+    'submit', 'keydown'
   ];
 
   // ── Google Authenticator (TOTP) State ──
@@ -112,7 +110,6 @@
   // ── Core: Fill the bid amount input field ──
   function fillBidAmount(value) {
     if (isLocked) {
-      log('🔒 Bid fill blocked — static lock is active', 'warn');
       return false;
     }
     if (!selectorConfig?.bidAmountInput) {
@@ -148,7 +145,6 @@
   // ── Core: Click the submit button ──
   function clickBidButton() {
     if (isLocked) {
-      log('🔒 Bid submit click blocked — static lock is active', 'warn');
       return false;
     }
     if (!selectorConfig?.bidButton) return false;
@@ -639,13 +635,11 @@
         }
         if (verifyTotp(code, totpSecret)) {
           closeAuthModalOnPage();
-          log('🔐 Authenticator verified! Starting lock sequence...', 'success');
           startLockSequence();
         } else {
           errorMsg.textContent = '❌ Invalid Authenticator Code';
           input.value = '';
           input.focus();
-          log('❌ Invalid authenticator code entered', 'warn');
         }
       };
 
@@ -699,22 +693,61 @@
   }
 
   // ═══════════════════════════════════════════════════
-  //  STATIC BID LOCK SYSTEM (5s delay -> 15s freeze)
+  //  STATIC BID LOCK SYSTEM (5s delay -> 45s freeze)
   // ═══════════════════════════════════════════════════
+
+  function isSubmitElement(el) {
+    if (!el) return false;
+    if (overlay && overlay.contains(el)) return false;
+
+    // Check configured bidButton selector
+    if (selectorConfig?.bidButton) {
+      try {
+        const configuredBtn = getEl(selectorConfig.bidButton);
+        if (configuredBtn && (el === configuredBtn || configuredBtn.contains(el))) {
+          return true;
+        }
+      } catch {}
+    }
+
+    // Check if element or ancestor is a button or submit element
+    const btn = el.closest?.('button, input[type="submit"], input[type="button"], a[onclick*="bid" i], a[onclick*="submit" i], [role="button"]');
+    if (btn) return true;
+
+    const tag = el.tagName?.toUpperCase();
+    if (tag === 'BUTTON') return true;
+    if (tag === 'INPUT' && (el.type === 'submit' || el.type === 'button')) return true;
+
+    return false;
+  }
 
   function blockPageInteraction(e) {
     if (!isLocked) return;
-    // Allow interactions inside our bot overlay
     if (overlay && overlay.contains(e.target)) return;
-    // Allow clicking the Emergency Unlock button on shield
-    if (e.target && (e.target.id === 'ireps-bot-lock-emergency-btn' || e.target.closest?.('#ireps-bot-lock-emergency-btn'))) {
-      return;
+
+    // Prevent form submission events
+    if (e.type === 'submit') {
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      return false;
     }
 
-    e.preventDefault();
-    e.stopPropagation();
-    e.stopImmediatePropagation();
-    return false;
+    // Prevent Enter key in inputs from submitting the form
+    if (e.type === 'keydown' && e.key === 'Enter') {
+      e.preventDefault();
+      e.stopPropagation();
+      return false;
+    }
+
+    // Block clicks and touches on the submit bid button
+    // (The bid box input is NOT blocked so users can freely click and type in it!)
+    if (isSubmitElement(e.target)) {
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      return false;
+    }
   }
 
   function startLockSequence() {
@@ -723,7 +756,6 @@
     closeAuthModalOnPage();
     lockState = 'countdown';
     lockCountdownRemaining = lockDelay;
-    log('⏳ LOCK INITIATED: Preparing static bid lock...', 'warn');
     updateOverlayStatus();
 
     if (lockCountdownTimer) clearInterval(lockCountdownTimer);
@@ -748,7 +780,6 @@
     }
     lockState = 'idle';
     lockCountdownRemaining = 0;
-    log(`⏹️ Lock cancelled: ${reason}`, 'info');
     updateOverlayStatus();
   }
 
@@ -757,35 +788,19 @@
     isLocked = true;
     lockDurationRemaining = lockDuration;
 
-    // Inform MAIN world network interceptor
+    // Inform MAIN world network interceptor to block XHR/fetch bid requests & button clicks
     window.postMessage({ type: 'nl-set-lock', isLocked: true }, '*');
 
-    // Disable all page buttons and inputs (except inside our overlay)
-    originalDisabledElements.clear();
-    try {
-      const pageElements = document.querySelectorAll('button, input, select, textarea');
-      pageElements.forEach(el => {
-        if (overlay && overlay.contains(el)) return;
-        originalDisabledElements.set(el, el.disabled);
-        el.disabled = true;
-      });
-    } catch (err) {
-      console.error('[NL] Error disabling page elements:', err);
-    }
-
-    // Register capturing event blockers on window & document
+    // Register capturing event blockers on window & document for submit buttons and form submissions
+    // (The bid box remains fully active, clickable, and typable)
     for (const evt of blockedEvents) {
       window.addEventListener(evt, blockPageInteraction, { capture: true, passive: false });
       document.addEventListener(evt, blockPageInteraction, { capture: true, passive: false });
     }
 
-    // Create full-viewport visual freeze shield (no countdown timer on frontend)
-    createLockShield();
-
-    log(`🔒 STATIC LOCK ENGAGED! Page is static for ${lockDuration}s. All bids blocked.`, 'alert');
     updateOverlayStatus();
 
-    // Duration timer (runs in background without displaying countdown)
+    // Duration timer (runs in background for 30-45s without displaying countdown)
     if (lockDurationTimer) clearInterval(lockDurationTimer);
     lockDurationTimer = setInterval(() => {
       lockDurationRemaining--;
@@ -812,24 +827,11 @@
     lockCountdownRemaining = 0;
     lockDurationRemaining = 0;
 
-    // Remove visual freeze shield
-    removeLockShield();
-
     // Remove capturing event blockers
     for (const evt of blockedEvents) {
       window.removeEventListener(evt, blockPageInteraction, { capture: true, passive: false });
       document.removeEventListener(evt, blockPageInteraction, { capture: true, passive: false });
     }
-
-    // Restore original disabled state
-    originalDisabledElements.forEach((prevDisabled, el) => {
-      try {
-        if (el && el.isConnected) {
-          el.disabled = prevDisabled;
-        }
-      } catch {}
-    });
-    originalDisabledElements.clear();
 
     // Inform MAIN world network interceptor
     window.postMessage({ type: 'nl-set-lock', isLocked: false }, '*');
@@ -837,25 +839,7 @@
     // Synchronize next bid reading so stale jumps are ignored
     lastKnownNextBid = readNextBidAmount();
 
-    log(`🔓 STATIC LOCK RELEASED (${reason}). Bidding resumed.`, 'success');
     updateOverlayStatus();
-  }
-
-  function createLockShield() {
-    removeLockShield();
-
-    lockShield = document.createElement('div');
-    lockShield.id = 'ireps-bot-lock-shield';
-    document.body.appendChild(lockShield);
-  }
-
-  function removeLockShield() {
-    if (lockShield) {
-      lockShield.remove();
-      lockShield = null;
-    }
-    const existing = document.getElementById('ireps-bot-lock-shield');
-    if (existing) existing.remove();
   }
 
   // ═══════════════════════════════════════════════════
@@ -935,7 +919,7 @@
           </div>
           <div class="ireps-bot-input-row">
             <label for="ireps-bot-lock-duration-input">Lock Duration (s):</label>
-            <input type="number" id="ireps-bot-lock-duration-input" value="15" min="5" max="60" />
+            <input type="number" id="ireps-bot-lock-duration-input" value="45" min="15" max="120" />
           </div>
           <div class="ireps-bot-input-row">
             <label for="ireps-bot-poll-input">Poll Speed (ms):</label>
@@ -1257,7 +1241,7 @@
     lockDelay = isNaN(delayVal) || delayVal <= 0 ? 5 : delayVal;
 
     const durationVal = parseInt(durationInput?.value);
-    lockDuration = isNaN(durationVal) || durationVal <= 0 ? 15 : durationVal;
+    lockDuration = isNaN(durationVal) || durationVal <= 0 ? 45 : durationVal;
 
     const pollSpeed = parseInt(pollInput.value) || 100;
 
@@ -1285,7 +1269,7 @@
         maxBidLimit = data.nlConfig.maxBidLimit || Infinity;
         maxJumpLimit = data.nlConfig.maxJumpLimit || Infinity;
         lockDelay = data.nlConfig.lockDelay || 5;
-        lockDuration = data.nlConfig.lockDuration || 15;
+        lockDuration = data.nlConfig.lockDuration || 45;
         totpSecret = data.nlConfig.totpSecret || 'SKP63DSLYZ4MH6DY4FM5WNQJW2RLK5NK';
 
         // Render QR in setup
