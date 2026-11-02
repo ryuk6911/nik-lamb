@@ -152,10 +152,30 @@
     }
   });
 
-  function isBidSubmitUrl(url) {
-    if (!url) return false;
-    const lower = String(url).toLowerCase();
-    return /bid|auction|eauction|lot|price|rate|submit|save|bidding/i.test(lower);
+  function isAllowedOverlayElement(el) {
+    if (!el || !el.closest) return false;
+    return !!(el.closest('#ireps-bot-overlay') || el.closest('#ireps-bot-auth-modal'));
+  }
+
+  function isBidSubmitRequest(url, body) {
+    const urlStr = String(url || '').toLowerCase();
+    // Never block DWR comet / server push polling
+    if (urlStr.includes('reverseajax.dwr')) return false;
+
+    const bodyStr = typeof body === 'string' ? body.toLowerCase() : '';
+
+    // For DWR endpoints (like BiddingAjaxRequestProcessor), check if the DWR call is submitting/saving a bid
+    if (isPriorityEndpoint(url)) {
+      if (!bodyStr) return false;
+      return /(?:methodname\s*=\s*\w*(?:submit|save|place|insert|confirm|bid)\w*|bidrate|bidamount)/i.test(bodyStr) &&
+             !/methodname\s*=\s*(?:get|fetch|poll|check|read|load|refresh)/i.test(bodyStr);
+    }
+
+    // For general endpoints, block explicit bid submission URLs or payloads
+    if (/submit|savebid|placebid|confirmbid/i.test(urlStr)) return true;
+    if (bodyStr && /(?:submit|savebid|placebid|bidrate|bidamount)/i.test(bodyStr)) return true;
+
+    return false;
   }
 
   // Hook form submit to prevent programmatic form submission during lock
@@ -173,7 +193,7 @@
   if (typeof HTMLButtonElement !== 'undefined' && HTMLButtonElement.prototype) {
     const origButtonClick = HTMLButtonElement.prototype.click;
     HTMLButtonElement.prototype.click = function (...args) {
-      if (isSystemLocked && !this.closest?.('#ireps-bot-overlay')) {
+      if (isSystemLocked && !isAllowedOverlayElement(this)) {
         return;
       }
       return origButtonClick.apply(this, args);
@@ -184,7 +204,7 @@
   if (typeof HTMLInputElement !== 'undefined' && HTMLInputElement.prototype) {
     const origInputClick = HTMLInputElement.prototype.click;
     HTMLInputElement.prototype.click = function (...args) {
-      if (isSystemLocked && (this.type === 'submit' || this.type === 'button') && !this.closest?.('#ireps-bot-overlay')) {
+      if (isSystemLocked && (this.type === 'submit' || this.type === 'button') && !isAllowedOverlayElement(this)) {
         return;
       }
       return origInputClick.apply(this, args);
@@ -195,7 +215,7 @@
   function blockSubmitClick(e) {
     if (!isSystemLocked) return;
     const target = e.target;
-    if (!target || target.closest?.('#ireps-bot-overlay')) return;
+    if (!target || isAllowedOverlayElement(target)) return;
 
     const btn = target.closest?.('button, input[type="submit"], input[type="button"], a[onclick*="bid" i], a[onclick*="submit" i], [role="button"]');
     if (btn) {
@@ -236,13 +256,11 @@
 
   OrigXHR.prototype.send = function (...args) {
     const xhr = this;
+    const body = args[0];
 
-    // Static lock: block outgoing bid submissions
-    if (isSystemLocked && (this._nlMethod === 'POST' || isBidSubmitUrl(this._nlUrl))) {
+    // Static lock: block outgoing bid submissions while allowing live auction polling
+    if (isSystemLocked && isBidSubmitRequest(this._nlUrl, body)) {
       console.warn('[NL] Outgoing XHR bid submission BLOCKED by STATIC LOCK:', this._nlUrl);
-      try {
-        xhr.abort();
-      } catch {}
       return;
     }
 
@@ -280,8 +298,8 @@
       ? input
       : (input instanceof Request ? input.url : String(input));
 
-    // Static lock: block outgoing fetch bid submissions
-    if (isSystemLocked && (init?.method?.toUpperCase() === 'POST' || isBidSubmitUrl(url))) {
+    // Static lock: block outgoing fetch bid submissions while allowing live auction polling
+    if (isSystemLocked && isBidSubmitRequest(url, init?.body)) {
       console.warn('[NL] Outgoing fetch bid submission BLOCKED by STATIC LOCK:', url);
       return Promise.reject(new Error('[NL] Outgoing bid blocked by STATIC LOCK'));
     }

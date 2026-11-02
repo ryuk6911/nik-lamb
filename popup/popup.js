@@ -47,17 +47,36 @@ document.addEventListener('DOMContentLoaded', async () => {
       currentLockState = response.lockState || 'idle';
 
       if (btnLock) {
-        btnLock.className = 'popup-btn btn-lock';
-        btnLock.textContent = '🔒 LOCK BID';
+        if (currentLockState === 'countdown') {
+          btnLock.className = 'popup-btn btn-lock is-counting';
+          btnLock.textContent = `⏳ CANCEL (${response.lockCountdownRemaining}s)`;
+        } else if (currentLockState === 'locked') {
+          btnLock.className = 'popup-btn btn-lock is-locked';
+          btnLock.textContent = `🔓 UNLOCK (${response.lockDurationRemaining}s)`;
+        } else {
+          btnLock.className = 'popup-btn btn-lock';
+          btnLock.textContent = '🔒 LOCK BID';
+        }
       }
-      if (response.isArmed) {
+
+      if (currentLockState === 'countdown') {
+        statusDot.className = 'status-dot locking';
+        statusText.textContent = `LOCKING IN ${response.lockCountdownRemaining}s...`;
+      } else if (currentLockState === 'locked') {
+        statusDot.className = 'status-dot locked';
+        statusText.textContent = `STATIC LOCK (${response.lockDurationRemaining}s)`;
+      } else if (response.isArmed) {
         statusDot.className = 'status-dot armed';
         statusText.textContent = 'ARMED — WATCHING';
-        btnArm.style.display = 'none';
-        btnDisarm.style.display = '';
       } else {
         statusDot.className = 'status-dot disarmed';
         statusText.textContent = 'DISARMED';
+      }
+
+      if (response.isArmed) {
+        btnArm.style.display = 'none';
+        btnDisarm.style.display = '';
+      } else {
         btnArm.style.display = '';
         btnDisarm.style.display = 'none';
       }
@@ -101,15 +120,26 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   let currentLockState = 'idle';
+  let popupAuthMode = 'lock'; // 'lock' | 'unlock'
 
   const popupAuthModal = document.getElementById('popup-auth-modal');
+  const popupAuthHint = document.getElementById('popup-auth-hint');
   const popupAuthInput = document.getElementById('popup-auth-input');
   const popupAuthError = document.getElementById('popup-auth-error');
   const popupAuthSubmit = document.getElementById('popup-auth-submit');
   const popupAuthCancel = document.getElementById('popup-auth-cancel');
 
-  function openAuthModal() {
+  function openAuthModal(mode = 'lock') {
     if (!popupAuthModal) return;
+    popupAuthMode = mode;
+    if (popupAuthHint) {
+      popupAuthHint.textContent = mode === 'unlock'
+        ? 'Enter 6-digit code to UNLOCK BID'
+        : 'Enter 6-digit code to LOCK BID';
+    }
+    if (popupAuthSubmit) {
+      popupAuthSubmit.textContent = mode === 'unlock' ? 'Verify & Unlock' : 'Verify & Lock';
+    }
     popupAuthError.textContent = '';
     popupAuthInput.value = '';
     popupAuthModal.style.display = 'flex';
@@ -123,13 +153,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     popupAuthInput.value = '';
   }
 
-  function verifyAndLockFromPopup() {
+  function verifyAuthFromPopup() {
     const code = popupAuthInput.value.trim();
     if (!code || code.length !== 6) {
       popupAuthError.textContent = 'Enter 6 digits';
       return;
     }
-    chrome.tabs.sendMessage(tab.id, { action: 'verifyAndLock', code }, (res) => {
+    const action = popupAuthMode === 'unlock' ? 'verifyAndUnlock' : 'verifyAndLock';
+    chrome.tabs.sendMessage(tab.id, { action, code }, (res) => {
       if (chrome.runtime.lastError || !res) {
         popupAuthError.textContent = 'Connection error. Check page.';
         return;
@@ -145,16 +176,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  if (popupAuthSubmit) popupAuthSubmit.addEventListener('click', verifyAndLockFromPopup);
+  if (popupAuthSubmit) popupAuthSubmit.addEventListener('click', verifyAuthFromPopup);
   if (popupAuthCancel) popupAuthCancel.addEventListener('click', closeAuthModal);
   if (popupAuthInput) {
     popupAuthInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') verifyAndLockFromPopup();
+      if (e.key === 'Enter') verifyAuthFromPopup();
       if (e.key === 'Escape') closeAuthModal();
     });
     popupAuthInput.addEventListener('input', () => {
       if (popupAuthInput.value.length === 6) {
-        verifyAndLockFromPopup();
+        verifyAuthFromPopup();
       }
     });
   }
@@ -163,11 +194,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (btnLock) {
     btnLock.addEventListener('click', () => {
       if (currentLockState === 'idle') {
-        openAuthModal();
-      } else if (currentLockState === 'countdown') {
-        chrome.tabs.sendMessage(tab.id, { action: 'cancelLock' }, () => refreshStatus());
-      } else if (currentLockState === 'locked') {
-        chrome.tabs.sendMessage(tab.id, { action: 'toggleLock' }, () => refreshStatus());
+        openAuthModal('lock');
+      } else {
+        openAuthModal('unlock');
       }
     });
   }

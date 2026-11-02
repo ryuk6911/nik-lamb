@@ -5,7 +5,8 @@
   "description": "Nik-lamb browser productivity tool.",
   "permissions": [
     "storage",
-    "notifications"
+    "notifications",
+    "alarms"
   ],
   "host_permissions": [
     "https://ireps.gov.in/*",

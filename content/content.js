@@ -15,10 +15,15 @@
   let maxBidLimit = Infinity;
   let maxJumpLimit = Infinity;  // Max allowed jump between consecutive bids
   let lastKnownNextBid = null;  // Track the NEXT bid input value (our trigger)
+  let lastSubmittedBid = null;  // Track the last bid amount we submitted (prevents self-outbidding)
+  let lastBidPlacedAt = 0;      // Timestamp of last placed bid (scopes auto-confirmation)
   let bidCount = 0;
   let observer = null;
+  let parentObserver = null;
+  let observedInputEl = null;
   let confirmObserver = null;
   let pollInterval = null;
+  let deferredCheckTimer = null;
   let selectorConfig = null;
   let isSelectingMode = false;
   let selectingField = null;
@@ -43,8 +48,9 @@
     'submit', 'keydown'
   ];
 
-  // ── Google Authenticator (TOTP) State ──
-  let totpSecret = 'SKP63DSLYZ4MH6DY4FM5WNQJW2RLK5NK';
+  // ── Google Authenticator (TOTP) State (Hardcoded Key) ──
+  const totpSecret = 'SKP63DSLYZ4MH6DY4FM5WNQJW2RLK5NK';
+  let authModalMode = 'lock'; // 'lock' | 'unlock'
 
   // ── Default selector hints (user will configure these) ──
   const DEFAULT_SELECTORS = {
@@ -168,24 +174,41 @@
     if (!isArmed || isLocked) return;
 
     const nextBid = readNextBidAmount();
+    const currentBid = readCurrentBidForDisplay();
     if (nextBid === null) return;
 
     // Detect if the next bid value changed
     if (lastKnownNextBid !== null && nextBid !== lastKnownNextBid) {
-      const now = Date.now();
-
-      // Prevent double-acting (e.g., if both network + poll detect same change)
-      if (now - lastActTimestamp < 500) {
+      // Self-outbidding guard: if currentBidDisplay is configured and shows the exact
+      // amount we just submitted, this nextBid update is from our own accepted bid.
+      if (currentBid !== null && lastSubmittedBid !== null && currentBid === lastSubmittedBid) {
+        log(`ℹ️ Own bid (₹${lastSubmittedBid}) is currently highest; updated next bid to ₹${nextBid}`, 'info');
         lastKnownNextBid = nextBid;
+        updateOverlayCurrentBid(currentBid, nextBid);
         return;
       }
-      lastActTimestamp = now;
+
+      const now = Date.now();
+      const elapsed = now - lastActTimestamp;
+
+      // Cooldown guard: do NOT overwrite lastKnownNextBid so a genuine competitor bid
+      // arriving during the cooldown window is still processed once the window expires.
+      if (elapsed < 300) {
+        if (!deferredCheckTimer) {
+          deferredCheckTimer = setTimeout(() => {
+            deferredCheckTimer = null;
+            checkAndBid('deferred');
+          }, 300 - elapsed);
+        }
+        return;
+      }
 
       log(`🔔 CHANGE DETECTED! Next bid: ₹${lastKnownNextBid} → ₹${nextBid} [via ${source}]`, 'alert');
 
       // Check if next bid exceeds our max limit
       if (nextBid > maxBidLimit) {
         log(`🛑 Next bid ₹${nextBid} exceeds max limit ₹${maxBidLimit}. STOPPING.`, 'warn');
+        lastKnownNextBid = nextBid;
         setArmed(false);
         updateOverlayStatus();
         return;
@@ -195,12 +218,14 @@
       const jump = nextBid - lastKnownNextBid;
       if (maxJumpLimit !== Infinity && jump > maxJumpLimit) {
         log(`🚨 SPIKE BLOCKED! Jump ₹${lastKnownNextBid} → ₹${nextBid} (Δ₹${jump.toFixed(2)}) exceeds max jump ₹${maxJumpLimit}. PAUSED.`, 'warn');
+        lastKnownNextBid = nextBid;
         setArmed(false);
         updateOverlayStatus();
         return;
       }
 
       // ACT NOW!
+      lastActTimestamp = now;
       log(`⚡ ACTING! Submitting ₹${nextBid}`, 'bid');
 
       // Step 1: Fill the bid amount into the actual input field
@@ -210,15 +235,21 @@
       const clicked = clickBidButton();
       if (clicked) {
         bidCount++;
+        lastSubmittedBid = nextBid;
+        lastBidPlacedAt = now;
+        lastKnownNextBid = nextBid;
         log(`✅ Entry #${bidCount} placed! (₹${nextBid})${filled ? '' : ' ⚠️ amount field not filled'}`, 'success');
         // Confirmation dialog handled by confirmObserver
       } else {
         log(`❌ Click failed! Selector: ${selectorConfig?.bidButton}`, 'error');
+        // Do not update lastKnownNextBid so the next poll can retry
+        updateOverlayCurrentBid(currentBid, nextBid);
+        return;
       }
     }
 
     lastKnownNextBid = nextBid;
-    updateOverlayCurrentBid(readCurrentBidForDisplay(), nextBid);
+    updateOverlayCurrentBid(currentBid, nextBid);
   }
 
   // ── Network Intercept: Listen for bid data from MAIN world interceptor ──
@@ -256,57 +287,26 @@
     }
   });
 
-  // ── Handle confirmation popups/modals ──
-  function handleConfirmationDialog() {
-    if (!isArmed || isLocked) return;
-    // Look for common confirmation buttons in modal dialogs
-    const confirmSelectors = [
-      'button[type="submit"]',
-      '.modal .btn-primary',
-      '.modal .btn-success',
-      'button:contains("OK")',
-      'button:contains("Yes")',
-      'button:contains("Confirm")',
-      '.swal2-confirm',
-      '.bootbox-accept',
-      'input[type="button"][value="OK"]',
-      'input[type="button"][value="Yes"]',
-      'input[type="button"][value="Confirm"]',
-      'input[type="submit"][value="OK"]',
-      'input[type="submit"][value="Yes"]',
-      'input[type="submit"][value="Confirm"]'
-    ];
-
-    for (const sel of confirmSelectors) {
-      try {
-        const btn = document.querySelector(sel);
-        if (btn && isVisible(btn)) {
-          log(`🔘 Clicking confirmation: ${sel}`, 'info');
-          btn.click();
-          return;
-        }
-      } catch { /* :contains isn't standard, ignore */ }
+  function isVisible(el) {
+    if (!el) return false;
+    if (typeof el.checkVisibility === 'function') {
+      return el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true });
     }
-
-    // Also check for text content matching
-    const allBtns = document.querySelectorAll('button, input[type="button"], input[type="submit"]');
-    for (const btn of allBtns) {
-      const text = (btn.value || btn.textContent || '').trim().toLowerCase();
-      if ((text === 'ok' || text === 'yes' || text === 'confirm' || text === 'submit') && isVisible(btn)) {
-        log(`🔘 Clicking confirmation button: "${text}"`, 'info');
-        btn.click();
-        return;
-      }
-    }
+    const style = window.getComputedStyle(el);
+    return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0' && el.offsetParent !== null;
   }
 
-  function isVisible(el) {
-    return el.offsetParent !== null || el.style.display !== 'none';
+  function onTargetInputEvent() {
+    if (isArmed) checkAndBid('input-event');
+  }
+
+  function onTargetChangeEvent() {
+    if (isArmed) checkAndBid('change-event');
   }
 
   // ── MutationObserver: Watch the NEXT BID INPUT for changes ──
   function startObserver() {
-    if (observer) observer.disconnect();
+    stopObserver();
 
     // Target the next bid input element — this is what changes when someone bids
     let target = null;
@@ -314,7 +314,7 @@
       target = getEl(selectorConfig.nextBidInput);
     }
 
-    observer = new MutationObserver((mutations) => {
+    observer = new MutationObserver(() => {
       if (!isArmed) return;
       checkAndBid('mutation');
     });
@@ -331,7 +331,7 @@
 
       // Also watch the PARENT for child replacement (DWR might replace the element)
       if (target.parentElement) {
-        const parentObserver = new MutationObserver(() => {
+        parentObserver = new MutationObserver(() => {
           if (!isArmed) return;
           checkAndBid('parent-mutation');
         });
@@ -343,8 +343,9 @@
       }
 
       // Direct event listeners on the input (catches programmatic changes)
-      target.addEventListener('input', () => { if (isArmed) checkAndBid('input-event'); });
-      target.addEventListener('change', () => { if (isArmed) checkAndBid('change-event'); });
+      observedInputEl = target;
+      observedInputEl.addEventListener('input', onTargetInputEvent);
+      observedInputEl.addEventListener('change', onTargetChangeEvent);
 
       log(`👁️ Observer watching: ${selectorConfig.nextBidInput} (next bid input)`, 'info');
     } else {
@@ -364,6 +365,15 @@
     if (observer) {
       observer.disconnect();
       observer = null;
+    }
+    if (parentObserver) {
+      parentObserver.disconnect();
+      parentObserver = null;
+    }
+    if (observedInputEl) {
+      observedInputEl.removeEventListener('input', onTargetInputEvent);
+      observedInputEl.removeEventListener('change', onTargetChangeEvent);
+      observedInputEl = null;
     }
   }
 
@@ -396,11 +406,17 @@
 
   // ── Check a newly-added DOM node for confirmation buttons ──
   function handleConfirmationInNode(node) {
-    // Only react if we're armed and just placed a bid (and not locked)
+    // Only react if we're armed, not locked, and placed a bid within the last 10 seconds
     if (!isArmed || isLocked || bidCount === 0) return;
+    if (Date.now() - lastBidPlacedAt > 10000) return;
+
+    const authModal = document.getElementById('ireps-bot-auth-modal');
+    if ((overlay && overlay.contains(node)) || (authModal && authModal.contains(node))) return;
 
     const checkEl = (el) => {
       if (!el || !el.matches) return;
+      if ((overlay && overlay.contains(el)) || (authModal && authModal.contains(el))) return;
+
       const text = (el.value || el.textContent || '').trim().toLowerCase();
       const isConfirmButton = (
         el.matches('button, input[type="button"], input[type="submit"]') &&
@@ -438,6 +454,10 @@
       clearInterval(pollInterval);
       pollInterval = null;
     }
+    if (deferredCheckTimer) {
+      clearTimeout(deferredCheckTimer);
+      deferredCheckTimer = null;
+    }
   }
 
   // ── Armed state management ──
@@ -445,6 +465,7 @@
     isArmed = armed;
     if (armed) {
       lastKnownNextBid = readNextBidAmount();
+      lastSubmittedBid = null;
       const displayBid = readCurrentBidForDisplay();
       log(`🟢 ARMED! Watching next bid input for changes.`, 'success');
       log(`   Current next bid: ₹${lastKnownNextBid || 'unknown'} | Display: ₹${displayBid || 'unknown'}`, 'info');
@@ -580,29 +601,13 @@
     return false;
   }
 
-  function generateRandomBase32Secret(length = 32) {
-    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
-    let result = '';
-    const randomVals = new Uint8Array(length);
-    if (window.crypto && window.crypto.getRandomValues) {
-      window.crypto.getRandomValues(randomVals);
-      for (let i = 0; i < length; i++) {
-        result += alphabet[randomVals[i] % alphabet.length];
-      }
-    } else {
-      for (let i = 0; i < length; i++) {
-        result += alphabet[Math.floor(Math.random() * alphabet.length)];
-      }
-    }
-    return result;
-  }
-
   function formatSecretDisplay(secret) {
     return String(secret || '').replace(/(.{4})/g, '$1 ').trim();
   }
 
-  // ── Authentication Modal on Page ──
-  function openAuthModalOnPage() {
+  // ── Authentication Modal on Page (Lock & Unlock) ──
+  function openAuthModalOnPage(mode = 'lock') {
+    authModalMode = mode;
     let modal = document.getElementById('ireps-bot-auth-modal');
     if (!modal) {
       modal = document.createElement('div');
@@ -611,7 +616,7 @@
         <div id="ireps-bot-auth-card">
           <div class="ireps-bot-auth-icon">🔐</div>
           <h3 class="ireps-bot-auth-heading">Google Authenticator</h3>
-          <p class="ireps-bot-auth-subtext">Enter the 6-digit code to initiate LOCK BID</p>
+          <p id="ireps-bot-auth-subtext" class="ireps-bot-auth-subtext">Enter the 6-digit code to initiate LOCK BID</p>
           <input type="text" id="ireps-bot-auth-code-input" maxlength="6" inputmode="numeric" pattern="[0-9]*" placeholder="••••••" autocomplete="off" />
           <div id="ireps-bot-auth-error-msg" class="ireps-bot-auth-error"></div>
           <div class="ireps-bot-auth-modal-btns">
@@ -635,7 +640,12 @@
         }
         if (verifyTotp(code, totpSecret)) {
           closeAuthModalOnPage();
-          startLockSequence();
+          if (authModalMode === 'unlock') {
+            cancelLockSequence('Unlocked via Authenticator');
+            log('🔓 Static lock released via Authenticator.', 'success');
+          } else {
+            startLockSequence();
+          }
         } else {
           errorMsg.textContent = '❌ Invalid Authenticator Code';
           input.value = '';
@@ -652,6 +662,16 @@
       input.addEventListener('input', () => {
         if (input.value.length === 6) doVerify();
       });
+    }
+
+    const subtext = modal.querySelector('#ireps-bot-auth-subtext');
+    const verifyBtn = modal.querySelector('#ireps-bot-auth-verify-btn');
+    if (authModalMode === 'unlock') {
+      if (subtext) subtext.textContent = 'Enter the 6-digit code to UNLOCK BID';
+      if (verifyBtn) verifyBtn.textContent = '🔓 Verify & Unlock';
+    } else {
+      if (subtext) subtext.textContent = 'Enter the 6-digit code to initiate LOCK BID';
+      if (verifyBtn) verifyBtn.textContent = '⚡ Verify & Lock';
     }
 
     modal.style.display = 'flex';
@@ -698,7 +718,8 @@
 
   function isSubmitElement(el) {
     if (!el) return false;
-    if (overlay && overlay.contains(el)) return false;
+    const authModal = document.getElementById('ireps-bot-auth-modal');
+    if ((overlay && overlay.contains(el)) || (authModal && authModal.contains(el))) return false;
 
     // Check configured bidButton selector
     if (selectorConfig?.bidButton) {
@@ -723,7 +744,8 @@
 
   function blockPageInteraction(e) {
     if (!isLocked) return;
-    if (overlay && overlay.contains(e.target)) return;
+    const authModal = document.getElementById('ireps-bot-auth-modal');
+    if ((overlay && overlay.contains(e.target)) || (authModal && authModal.contains(e.target))) return;
 
     // Prevent form submission events
     if (e.type === 'submit') {
@@ -765,6 +787,8 @@
         clearInterval(lockCountdownTimer);
         lockCountdownTimer = null;
         engageStaticLock();
+      } else {
+        updateOverlayStatus();
       }
     }, 1000);
   }
@@ -800,7 +824,7 @@
 
     updateOverlayStatus();
 
-    // Duration timer (runs in background for 30-45s without displaying countdown)
+    // Duration timer
     if (lockDurationTimer) clearInterval(lockDurationTimer);
     lockDurationTimer = setInterval(() => {
       lockDurationRemaining--;
@@ -808,6 +832,8 @@
         clearInterval(lockDurationTimer);
         lockDurationTimer = null;
         releaseStaticLock('Timer finished');
+      } else {
+        updateOverlayStatus();
       }
     }, 1000);
   }
@@ -934,9 +960,6 @@
               <button id="ireps-bot-test-code-btn" class="ireps-bot-btn-mini" type="button">Check</button>
             </div>
             <div id="ireps-bot-test-code-result" class="ireps-bot-auth-test-result"></div>
-            <div class="ireps-bot-auth-btn-row">
-              <button id="ireps-bot-gen-secret-btn" class="ireps-bot-btn-mini" type="button">🔄 New Secret</button>
-            </div>
           </div>
 
           <button id="ireps-bot-save-config" class="ireps-bot-btn ireps-bot-btn-save">💾 Save Config</button>
@@ -958,11 +981,9 @@
     overlay.querySelector('#ireps-bot-disarm').addEventListener('click', () => setArmed(false));
     overlay.querySelector('#ireps-bot-lock').addEventListener('click', () => {
       if (lockState === 'idle') {
-        openAuthModalOnPage();
-      } else if (lockState === 'countdown') {
-        cancelLockSequence('Cancelled by user');
-      } else if (lockState === 'locked') {
-        releaseStaticLock('Emergency unlocked by user');
+        openAuthModalOnPage('lock');
+      } else {
+        openAuthModalOnPage('unlock');
       }
     });
 
@@ -998,15 +1019,6 @@
       });
     }
 
-    const genSecretBtn = overlay.querySelector('#ireps-bot-gen-secret-btn');
-    if (genSecretBtn) {
-      genSecretBtn.addEventListener('click', () => {
-        totpSecret = generateRandomBase32Secret(32);
-        renderSetupQrCode();
-        saveConfig();
-        log('🔄 Generated new Google Authenticator secret key', 'info');
-      });
-    }
     overlay.querySelector('#ireps-bot-setup').addEventListener('click', toggleSetupPanel);
     overlay.querySelector('#ireps-bot-save-config').addEventListener('click', saveConfig);
 
@@ -1014,6 +1026,13 @@
     overlay.querySelector('#ireps-bot-max-input').addEventListener('change', (e) => {
       const val = parseFloat(e.target.value);
       maxBidLimit = isNaN(val) || val <= 0 ? Infinity : val;
+      updateOverlayStatus();
+    });
+
+    // Max jump input
+    overlay.querySelector('#ireps-bot-max-jump-input').addEventListener('change', (e) => {
+      const val = parseFloat(e.target.value);
+      maxJumpLimit = isNaN(val) || val <= 0 ? Infinity : val;
     });
 
     // Setup selector buttons
@@ -1057,21 +1076,39 @@
 
     if (!dot || !text) return;
 
-    if (isArmed) {
+    if (lockState === 'countdown') {
+      dot.className = 'ireps-bot-dot ireps-bot-dot-locking';
+      text.textContent = `LOCKING IN ${lockCountdownRemaining}s...`;
+    } else if (lockState === 'locked') {
+      dot.className = 'ireps-bot-dot ireps-bot-dot-locked';
+      text.textContent = `STATIC LOCK (${lockDurationRemaining}s)`;
+    } else if (isArmed) {
       dot.className = 'ireps-bot-dot ireps-bot-dot-armed';
       text.textContent = 'ARMED — WATCHING';
-      if (armBtn) armBtn.style.display = 'none';
-      if (disarmBtn) disarmBtn.style.display = '';
     } else {
       dot.className = 'ireps-bot-dot ireps-bot-dot-disarmed';
       text.textContent = 'DISARMED';
+    }
+
+    if (isArmed) {
+      if (armBtn) armBtn.style.display = 'none';
+      if (disarmBtn) disarmBtn.style.display = '';
+    } else {
       if (armBtn) armBtn.style.display = '';
       if (disarmBtn) disarmBtn.style.display = 'none';
     }
 
     if (lockBtn) {
-      lockBtn.className = 'ireps-bot-btn ireps-bot-btn-lock';
-      lockBtn.textContent = '🔒 LOCK BID';
+      if (lockState === 'countdown') {
+        lockBtn.className = 'ireps-bot-btn ireps-bot-btn-lock is-counting';
+        lockBtn.textContent = `⏳ CANCEL (${lockCountdownRemaining}s)`;
+      } else if (lockState === 'locked') {
+        lockBtn.className = 'ireps-bot-btn ireps-bot-btn-lock is-locked';
+        lockBtn.textContent = `🔓 UNLOCK (${lockDurationRemaining}s)`;
+      } else {
+        lockBtn.className = 'ireps-bot-btn ireps-bot-btn-lock';
+        lockBtn.textContent = '🔒 LOCK BID';
+      }
     }
 
     const limitEl = document.getElementById('ireps-bot-max-limit');
@@ -1221,7 +1258,7 @@
     const maxJumpInput = document.getElementById('ireps-bot-max-jump-input');
     const pollInput = document.getElementById('ireps-bot-poll-input');
 
-    const val = parseFloat(maxInput.value);
+    const val = parseFloat(maxInput?.value);
     maxBidLimit = isNaN(val) || val <= 0 ? Infinity : val;
 
     const jumpVal = parseFloat(maxJumpInput?.value);
@@ -1230,7 +1267,7 @@
     lockDelay = 5;
     lockDuration = 45;
 
-    const pollSpeed = parseInt(pollInput.value) || 100;
+    const pollSpeed = parseInt(pollInput?.value) || 30;
 
     const config = {
       selectors: selectorConfig,
@@ -1257,7 +1294,6 @@
         maxJumpLimit = data.nlConfig.maxJumpLimit || Infinity;
         lockDelay = 5;
         lockDuration = 45;
-        totpSecret = data.nlConfig.totpSecret || 'SKP63DSLYZ4MH6DY4FM5WNQJW2RLK5NK';
 
         // Render QR in setup
         renderSetupQrCode();
@@ -1270,7 +1306,7 @@
         if (maxJumpInput && maxJumpLimit !== Infinity) maxJumpInput.value = maxJumpLimit;
 
         const pollInput = document.getElementById('ireps-bot-poll-input');
-        if (pollInput) pollInput.value = data.nlConfig.pollSpeed || 100;
+        if (pollInput) pollInput.value = data.nlConfig.pollSpeed || 30;
 
         // Update selector status icons
         for (const field of ['currentBidDisplay', 'nextBidInput', 'bidAmountInput', 'bidButton']) {
@@ -1311,7 +1347,9 @@
       sendResponse({ ok: true });
     } else if (message.action === 'setMaxLimit') {
       maxBidLimit = message.value || Infinity;
-      updateOverlayStatus();
+      const maxInput = document.getElementById('ireps-bot-max-input');
+      if (maxInput) maxInput.value = maxBidLimit === Infinity ? '' : maxBidLimit;
+      saveConfig();
       sendResponse({ ok: true });
     } else if (message.action === 'verifyAndLock') {
       if (verifyTotp(message.code, totpSecret)) {
@@ -1320,19 +1358,30 @@
       } else {
         sendResponse({ ok: false, error: 'Invalid authenticator code' });
       }
+    } else if (message.action === 'verifyAndUnlock') {
+      if (verifyTotp(message.code, totpSecret)) {
+        cancelLockSequence('Unlocked from popup via Authenticator');
+        log('🔓 Static lock released via Authenticator (popup).', 'success');
+        sendResponse({ ok: true, lockState });
+      } else {
+        sendResponse({ ok: false, error: 'Invalid authenticator code' });
+      }
     } else if (message.action === 'triggerLock') {
-      startLockSequence();
+      openAuthModalOnPage('lock');
       sendResponse({ ok: true, lockState });
     } else if (message.action === 'cancelLock') {
-      cancelLockSequence('Cancelled from popup');
-      sendResponse({ ok: true, lockState });
+      if (message.code && verifyTotp(message.code, totpSecret)) {
+        cancelLockSequence('Cancelled from popup via Authenticator');
+        sendResponse({ ok: true, lockState });
+      } else {
+        openAuthModalOnPage('unlock');
+        sendResponse({ ok: false, error: 'Authenticator code required to unlock' });
+      }
     } else if (message.action === 'toggleLock') {
       if (lockState === 'idle') {
-        openAuthModalOnPage();
-      } else if (lockState === 'countdown') {
-        cancelLockSequence('Cancelled by user');
-      } else if (lockState === 'locked') {
-        releaseStaticLock('Emergency unlocked by user');
+        openAuthModalOnPage('lock');
+      } else {
+        openAuthModalOnPage('unlock');
       }
       sendResponse({ ok: true, lockState });
     }
@@ -1345,7 +1394,8 @@
 
   function init() {
     createOverlay();
-    loadConfig((data) => {
+    chrome.storage.local.set({ isArmed: false });
+    loadConfig(() => {
       log('🚀 Nik-lamb loaded!', 'success');
       log('⚙️ Click "Setup" to configure element selectors.', 'info');
 
