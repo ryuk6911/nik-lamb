@@ -15,15 +15,16 @@
   let maxBidLimit = Infinity;
   let maxJumpLimit = Infinity;  // Max allowed jump between consecutive bids
   let lastKnownNextBid = null;  // Track the NEXT bid input value (our trigger)
-  let lastSubmittedBid = null;  // Track the last bid amount we submitted (prevents self-outbidding)
+  let lastSubmittedBid = null;  // Track the last rounded bid amount we submitted
   let lastBidPlacedAt = 0;      // Timestamp of last placed bid (scopes auto-confirmation)
+  let awaitingConfirmClick = false; // Single-shot flag for auto-confirming modal dialog
+  let isSubmittingBid = false;  // Re-entrancy guard during fillBidAmount + clickBidButton
   let bidCount = 0;
   let observer = null;
   let parentObserver = null;
   let observedInputEl = null;
   let confirmObserver = null;
   let pollInterval = null;
-  let deferredCheckTimer = null;
   let selectorConfig = null;
   let isSelectingMode = false;
   let selectingField = null;
@@ -113,7 +114,7 @@
     return extractNumber(text);
   }
 
-  // ── Core: Fill the bid amount input field ──
+  // ── Core: Fill the bid amount input field (rounded to nearest whole number) ──
   function fillBidAmount(value) {
     if (isLocked) {
       return false;
@@ -128,14 +129,16 @@
       return false;
     }
 
+    const roundedValue = Math.round(Number(value));
+
     // Set the value
     const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
       window.HTMLInputElement.prototype, 'value'
     )?.set;
     if (nativeInputValueSetter) {
-      nativeInputValueSetter.call(el, value);
+      nativeInputValueSetter.call(el, roundedValue);
     } else {
-      el.value = value;
+      el.value = roundedValue;
     }
 
     // Dispatch events so the page's validation recognizes the new value
@@ -144,7 +147,7 @@
     el.dispatchEvent(new Event('blur', { bubbles: true }));
     el.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
 
-    log(`📝 Filled bid amount: ₹${value} → ${selectorConfig.bidAmountInput}`, 'info');
+    log(`📝 Filled bid amount: ₹${roundedValue} → ${selectorConfig.bidAmountInput}`, 'info');
     return true;
   }
 
@@ -169,45 +172,42 @@
 
   // ── Core: The detection logic ──
   // Watches #calculatedMinBidRate — when it changes, someone just bid.
-  // The new value IS the next valid bid — just click submit.
+  // Rounds the next bid to the nearest whole number and submits once.
   function checkAndBid(source = 'poll') {
-    if (!isArmed || isLocked) return;
+    if (!isArmed || isLocked || isSubmittingBid) return;
 
     const nextBid = readNextBidAmount();
     const currentBid = readCurrentBidForDisplay();
     if (nextBid === null) return;
 
+    const roundedBid = Math.round(nextBid);
+
     // Detect if the next bid value changed
     if (lastKnownNextBid !== null && nextBid !== lastKnownNextBid) {
+      const now = Date.now();
+
+      // Prevent double-acting (e.g., if network, mutation, input event, and poll all fire)
+      // or if the rounded value is identical to the bid we already just placed
+      if (now - lastActTimestamp < 800 || roundedBid === lastSubmittedBid) {
+        lastKnownNextBid = nextBid;
+        updateOverlayCurrentBid(currentBid, roundedBid);
+        return;
+      }
+
       // Self-outbidding guard: if currentBidDisplay is configured and shows the exact
       // amount we just submitted, this nextBid update is from our own accepted bid.
-      if (currentBid !== null && lastSubmittedBid !== null && currentBid === lastSubmittedBid) {
-        log(`ℹ️ Own bid (₹${lastSubmittedBid}) is currently highest; updated next bid to ₹${nextBid}`, 'info');
+      if (currentBid !== null && lastSubmittedBid !== null && Math.round(currentBid) === lastSubmittedBid) {
+        log(`ℹ️ Own bid (₹${lastSubmittedBid}) is currently highest; updated next bid to ₹${roundedBid}`, 'info');
         lastKnownNextBid = nextBid;
-        updateOverlayCurrentBid(currentBid, nextBid);
+        updateOverlayCurrentBid(currentBid, roundedBid);
         return;
       }
 
-      const now = Date.now();
-      const elapsed = now - lastActTimestamp;
+      log(`🔔 CHANGE DETECTED! Next bid: ₹${lastKnownNextBid} → ₹${nextBid} (Rounded: ₹${roundedBid}) [via ${source}]`, 'alert');
 
-      // Cooldown guard: do NOT overwrite lastKnownNextBid so a genuine competitor bid
-      // arriving during the cooldown window is still processed once the window expires.
-      if (elapsed < 300) {
-        if (!deferredCheckTimer) {
-          deferredCheckTimer = setTimeout(() => {
-            deferredCheckTimer = null;
-            checkAndBid('deferred');
-          }, 300 - elapsed);
-        }
-        return;
-      }
-
-      log(`🔔 CHANGE DETECTED! Next bid: ₹${lastKnownNextBid} → ₹${nextBid} [via ${source}]`, 'alert');
-
-      // Check if next bid exceeds our max limit
-      if (nextBid > maxBidLimit) {
-        log(`🛑 Next bid ₹${nextBid} exceeds max limit ₹${maxBidLimit}. STOPPING.`, 'warn');
+      // Check if rounded bid exceeds our max limit
+      if (roundedBid > maxBidLimit) {
+        log(`🛑 Next bid ₹${roundedBid} exceeds max limit ₹${maxBidLimit}. STOPPING.`, 'warn');
         lastKnownNextBid = nextBid;
         setArmed(false);
         updateOverlayStatus();
@@ -224,32 +224,41 @@
         return;
       }
 
-      // ACT NOW!
+      // Lock out re-entrant calls from input/change events fired during fillBidAmount
+      isSubmittingBid = true;
       lastActTimestamp = now;
-      log(`⚡ ACTING! Submitting ₹${nextBid}`, 'bid');
+      lastKnownNextBid = nextBid;
 
-      // Step 1: Fill the bid amount into the actual input field
-      const filled = fillBidAmount(nextBid);
+      try {
+        log(`⚡ ACTING! Submitting ₹${roundedBid}`, 'bid');
 
-      // Step 2: Click submit
-      const clicked = clickBidButton();
-      if (clicked) {
-        bidCount++;
-        lastSubmittedBid = nextBid;
-        lastBidPlacedAt = now;
-        lastKnownNextBid = nextBid;
-        log(`✅ Entry #${bidCount} placed! (₹${nextBid})${filled ? '' : ' ⚠️ amount field not filled'}`, 'success');
-        // Confirmation dialog handled by confirmObserver
-      } else {
-        log(`❌ Click failed! Selector: ${selectorConfig?.bidButton}`, 'error');
-        // Do not update lastKnownNextBid so the next poll can retry
-        updateOverlayCurrentBid(currentBid, nextBid);
-        return;
+        // Step 1: Fill the rounded whole-number bid amount into the input field
+        const filled = fillBidAmount(roundedBid);
+
+        // Sync lastKnownNextBid in case nextBidInput and bidAmountInput are the same element
+        const currentInputVal = readNextBidAmount();
+        if (currentInputVal !== null) {
+          lastKnownNextBid = currentInputVal;
+        }
+
+        // Step 2: Click submit once
+        const clicked = clickBidButton();
+        if (clicked) {
+          bidCount++;
+          lastSubmittedBid = roundedBid;
+          lastBidPlacedAt = now;
+          awaitingConfirmClick = true;
+          log(`✅ Entry #${bidCount} placed! (₹${roundedBid})${filled ? '' : ' ⚠️ amount field not filled'}`, 'success');
+        } else {
+          log(`❌ Click failed! Selector: ${selectorConfig?.bidButton}`, 'error');
+        }
+      } finally {
+        isSubmittingBid = false;
       }
     }
 
-    lastKnownNextBid = nextBid;
-    updateOverlayCurrentBid(currentBid, nextBid);
+    lastKnownNextBid = readNextBidAmount() ?? nextBid;
+    updateOverlayCurrentBid(currentBid, roundedBid);
   }
 
   // ── Network Intercept: Listen for bid data from MAIN world interceptor ──
@@ -406,25 +415,33 @@
 
   // ── Check a newly-added DOM node for confirmation buttons ──
   function handleConfirmationInNode(node) {
-    // Only react if we're armed, not locked, and placed a bid within the last 10 seconds
-    if (!isArmed || isLocked || bidCount === 0) return;
-    if (Date.now() - lastBidPlacedAt > 10000) return;
+    // Only react once per placed bid within a 5-second window
+    if (!isArmed || isLocked || !awaitingConfirmClick) return;
+    if (Date.now() - lastBidPlacedAt > 5000) {
+      awaitingConfirmClick = false;
+      return;
+    }
 
     const authModal = document.getElementById('ireps-bot-auth-modal');
     if ((overlay && overlay.contains(node)) || (authModal && authModal.contains(node))) return;
 
+    const configuredBidBtn = selectorConfig?.bidButton ? getEl(selectorConfig.bidButton) : null;
+
     const checkEl = (el) => {
-      if (!el || !el.matches) return;
+      if (!awaitingConfirmClick || !el || !el.matches) return;
       if ((overlay && overlay.contains(el)) || (authModal && authModal.contains(el))) return;
+      if (configuredBidBtn && (el === configuredBidBtn || configuredBidBtn.contains(el))) return;
 
       const text = (el.value || el.textContent || '').trim().toLowerCase();
       const isConfirmButton = (
         el.matches('button, input[type="button"], input[type="submit"]') &&
-        (text === 'ok' || text === 'yes' || text === 'confirm' || text === 'submit')
+        (text === 'ok' || text === 'yes' || text === 'confirm')
       );
       const isModalPrimary = el.matches('.modal .btn-primary, .modal .btn-success, .swal2-confirm, .bootbox-accept');
 
       if ((isConfirmButton || isModalPrimary) && isVisible(el)) {
+        awaitingConfirmClick = false;
+        lastActTimestamp = Date.now();
         log(`🔘 Auto-confirming dialog: "${text}"`, 'info');
         el.click();
       }
@@ -434,7 +451,7 @@
     checkEl(node);
 
     // Check all buttons inside the node
-    if (node.querySelectorAll) {
+    if (awaitingConfirmClick && node.querySelectorAll) {
       node.querySelectorAll('button, input[type="button"], input[type="submit"]').forEach(checkEl);
     }
   }
@@ -454,10 +471,6 @@
       clearInterval(pollInterval);
       pollInterval = null;
     }
-    if (deferredCheckTimer) {
-      clearTimeout(deferredCheckTimer);
-      deferredCheckTimer = null;
-    }
   }
 
   // ── Armed state management ──
@@ -466,14 +479,17 @@
     if (armed) {
       lastKnownNextBid = readNextBidAmount();
       lastSubmittedBid = null;
+      awaitingConfirmClick = false;
       const displayBid = readCurrentBidForDisplay();
+      const roundedInitial = lastKnownNextBid !== null ? Math.round(lastKnownNextBid) : 'unknown';
       log(`🟢 ARMED! Watching next bid input for changes.`, 'success');
-      log(`   Current next bid: ₹${lastKnownNextBid || 'unknown'} | Display: ₹${displayBid || 'unknown'}`, 'info');
+      log(`   Current next bid: ₹${roundedInitial} | Display: ₹${displayBid || 'unknown'}`, 'info');
       startObserver();
       startConfirmObserver();
       const pollSpeed = parseInt(document.getElementById('ireps-bot-poll-input')?.value) || 30;
       startPolling(pollSpeed);
     } else {
+      awaitingConfirmClick = false;
       log('🔴 DISARMED. Monitoring stopped.', 'warn');
       stopObserver();
       stopConfirmObserver();
@@ -1324,13 +1340,14 @@
   // ── Listen for messages from popup ──
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.action === 'getStatus') {
+      const rawNext = readNextBidAmount();
       sendResponse({
         isArmed,
         bidCount,
         maxBidLimit: maxBidLimit === Infinity ? null : maxBidLimit,
         maxJumpLimit: maxJumpLimit === Infinity ? null : maxJumpLimit,
         currentBid: readCurrentBidForDisplay(),
-        nextBid: readNextBidAmount(),
+        nextBid: rawNext !== null ? Math.round(rawNext) : null,
         configured: !!(selectorConfig?.nextBidInput && selectorConfig?.bidAmountInput && selectorConfig?.bidButton),
         lockState,
         isLocked,
