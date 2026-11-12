@@ -114,7 +114,19 @@
     return extractNumber(text);
   }
 
-  // ── Core: Fill the bid amount input field (rounded to nearest whole number) ──
+  // ── Helper: Compute next valid whole-number bid ──
+  // Always rounds UP to the next whole number (ceiling) so the bid is >= minimum required rate.
+  // If nextBid <= currentBid, advances to the next whole number above currentBid.
+  function getNextWholeBid(nextBid, currentBid = null) {
+    if (nextBid === null || isNaN(nextBid)) return null;
+    let target = Math.ceil(nextBid);
+    if (currentBid !== null && !isNaN(currentBid) && target <= currentBid) {
+      target = Math.floor(currentBid) + 1;
+    }
+    return target;
+  }
+
+  // ── Core: Fill the bid amount input field (next whole number) ──
   function fillBidAmount(value) {
     if (isLocked) {
       return false;
@@ -129,16 +141,16 @@
       return false;
     }
 
-    const roundedValue = Math.round(Number(value));
+    const wholeValue = getNextWholeBid(Number(value), readCurrentBidForDisplay()) ?? Math.ceil(Number(value));
 
     // Set the value
     const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
       window.HTMLInputElement.prototype, 'value'
     )?.set;
     if (nativeInputValueSetter) {
-      nativeInputValueSetter.call(el, roundedValue);
+      nativeInputValueSetter.call(el, wholeValue);
     } else {
-      el.value = roundedValue;
+      el.value = wholeValue;
     }
 
     // Dispatch events so the page's validation recognizes the new value
@@ -147,7 +159,7 @@
     el.dispatchEvent(new Event('blur', { bubbles: true }));
     el.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
 
-    log(`📝 Filled bid amount: ₹${roundedValue} → ${selectorConfig.bidAmountInput}`, 'info');
+    log(`📝 Filled bid amount: ₹${wholeValue} → ${selectorConfig.bidAmountInput}`, 'info');
     return true;
   }
 
@@ -172,7 +184,7 @@
 
   // ── Core: The detection logic ──
   // Watches #calculatedMinBidRate — when it changes, someone just bid.
-  // Rounds the next bid to the nearest whole number and submits once.
+  // Advances to the next whole number (ceiling) and submits once.
   function checkAndBid(source = 'poll') {
     if (!isArmed || isLocked || isSubmittingBid) return;
 
@@ -180,34 +192,34 @@
     const currentBid = readCurrentBidForDisplay();
     if (nextBid === null) return;
 
-    const roundedBid = Math.round(nextBid);
+    const targetBid = getNextWholeBid(nextBid, currentBid);
 
     // Detect if the next bid value changed
     if (lastKnownNextBid !== null && nextBid !== lastKnownNextBid) {
       const now = Date.now();
 
       // Prevent double-acting (e.g., if network, mutation, input event, and poll all fire)
-      // or if the rounded value is identical to the bid we already just placed
-      if (now - lastActTimestamp < 800 || roundedBid === lastSubmittedBid) {
+      // or if the calculated target value is identical to the bid we already just placed
+      if (now - lastActTimestamp < 800 || targetBid === lastSubmittedBid) {
         lastKnownNextBid = nextBid;
-        updateOverlayCurrentBid(currentBid, roundedBid);
+        updateOverlayCurrentBid(currentBid, targetBid);
         return;
       }
 
       // Self-outbidding guard: if currentBidDisplay is configured and shows the exact
       // amount we just submitted, this nextBid update is from our own accepted bid.
-      if (currentBid !== null && lastSubmittedBid !== null && Math.round(currentBid) === lastSubmittedBid) {
-        log(`ℹ️ Own bid (₹${lastSubmittedBid}) is currently highest; updated next bid to ₹${roundedBid}`, 'info');
+      if (currentBid !== null && lastSubmittedBid !== null && Math.ceil(currentBid) === lastSubmittedBid) {
+        log(`ℹ️ Own bid (₹${lastSubmittedBid}) is currently highest; updated next bid to ₹${targetBid}`, 'info');
         lastKnownNextBid = nextBid;
-        updateOverlayCurrentBid(currentBid, roundedBid);
+        updateOverlayCurrentBid(currentBid, targetBid);
         return;
       }
 
-      log(`🔔 CHANGE DETECTED! Next bid: ₹${lastKnownNextBid} → ₹${nextBid} (Rounded: ₹${roundedBid}) [via ${source}]`, 'alert');
+      log(`🔔 CHANGE DETECTED! Next bid: ₹${lastKnownNextBid} → ₹${nextBid} (Target: ₹${targetBid}) [via ${source}]`, 'alert');
 
-      // Check if rounded bid exceeds our max limit
-      if (roundedBid > maxBidLimit) {
-        log(`🛑 Next bid ₹${roundedBid} exceeds max limit ₹${maxBidLimit}. STOPPING.`, 'warn');
+      // Check if target bid exceeds our max limit
+      if (targetBid > maxBidLimit) {
+        log(`🛑 Next bid ₹${targetBid} exceeds max limit ₹${maxBidLimit}. STOPPING.`, 'warn');
         lastKnownNextBid = nextBid;
         setArmed(false);
         updateOverlayStatus();
@@ -230,10 +242,10 @@
       lastKnownNextBid = nextBid;
 
       try {
-        log(`⚡ ACTING! Submitting ₹${roundedBid}`, 'bid');
+        log(`⚡ ACTING! Submitting ₹${targetBid}`, 'bid');
 
-        // Step 1: Fill the rounded whole-number bid amount into the input field
-        const filled = fillBidAmount(roundedBid);
+        // Step 1: Fill the next whole-number bid amount into the input field
+        const filled = fillBidAmount(targetBid);
 
         // Sync lastKnownNextBid in case nextBidInput and bidAmountInput are the same element
         const currentInputVal = readNextBidAmount();
@@ -245,10 +257,10 @@
         const clicked = clickBidButton();
         if (clicked) {
           bidCount++;
-          lastSubmittedBid = roundedBid;
+          lastSubmittedBid = targetBid;
           lastBidPlacedAt = now;
           awaitingConfirmClick = true;
-          log(`✅ Entry #${bidCount} placed! (₹${roundedBid})${filled ? '' : ' ⚠️ amount field not filled'}`, 'success');
+          log(`✅ Entry #${bidCount} placed! (₹${targetBid})${filled ? '' : ' ⚠️ amount field not filled'}`, 'success');
         } else {
           log(`❌ Click failed! Selector: ${selectorConfig?.bidButton}`, 'error');
         }
@@ -258,7 +270,7 @@
     }
 
     lastKnownNextBid = readNextBidAmount() ?? nextBid;
-    updateOverlayCurrentBid(currentBid, roundedBid);
+    updateOverlayCurrentBid(currentBid, targetBid);
   }
 
   // ── Network Intercept: Listen for bid data from MAIN world interceptor ──
@@ -481,7 +493,7 @@
       lastSubmittedBid = null;
       awaitingConfirmClick = false;
       const displayBid = readCurrentBidForDisplay();
-      const roundedInitial = lastKnownNextBid !== null ? Math.round(lastKnownNextBid) : 'unknown';
+      const roundedInitial = lastKnownNextBid !== null ? getNextWholeBid(lastKnownNextBid, displayBid) : 'unknown';
       log(`🟢 ARMED! Watching next bid input for changes.`, 'success');
       log(`   Current next bid: ₹${roundedInitial} | Display: ₹${displayBid || 'unknown'}`, 'info');
       startObserver();
@@ -1341,13 +1353,14 @@
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.action === 'getStatus') {
       const rawNext = readNextBidAmount();
+      const rawCurrent = readCurrentBidForDisplay();
       sendResponse({
         isArmed,
         bidCount,
         maxBidLimit: maxBidLimit === Infinity ? null : maxBidLimit,
         maxJumpLimit: maxJumpLimit === Infinity ? null : maxJumpLimit,
-        currentBid: readCurrentBidForDisplay(),
-        nextBid: rawNext !== null ? Math.round(rawNext) : null,
+        currentBid: rawCurrent,
+        nextBid: rawNext !== null ? getNextWholeBid(rawNext, rawCurrent) : null,
         configured: !!(selectorConfig?.nextBidInput && selectorConfig?.bidAmountInput && selectorConfig?.bidButton),
         lockState,
         isLocked,
