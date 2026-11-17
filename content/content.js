@@ -19,6 +19,10 @@
   let lastBidPlacedAt = 0;      // Timestamp of last placed bid (scopes auto-confirmation)
   let awaitingConfirmClick = false; // Single-shot flag for auto-confirming modal dialog
   let isSubmittingBid = false;  // Re-entrancy guard during fillBidAmount + clickBidButton
+  let weAreLeading = false;     // True when our own bid is currently the highest
+  let leadingBidAmount = null;  // The bid amount we are currently leading with
+  let awaitingOwnBidUpdate = false; // True immediately after clicking submit, waiting for nextBid to advance
+  let minBidAfterOurBid = null; // The nextBid rate that was set after our bid was accepted
   let bidCount = 0;
   let observer = null;
   let parentObserver = null;
@@ -188,36 +192,85 @@
   function checkAndBid(source = 'poll') {
     if (!isArmed || isLocked || isSubmittingBid) return;
 
+    const now = Date.now();
+
+    // Safety timeout: if awaiting confirmation of our bid for > 6s, reset wait state
+    if (awaitingOwnBidUpdate && (now - lastBidPlacedAt > 6000)) {
+      log('⚠️ Own bid confirmation wait timed out (6s). Resuming normal detection.', 'warn');
+      awaitingOwnBidUpdate = false;
+    }
+
     const nextBid = readNextBidAmount();
     const currentBid = readCurrentBidForDisplay();
     if (nextBid === null) return;
 
     const targetBid = getNextWholeBid(nextBid, currentBid);
 
+    // Direct confirmation from currentBidDisplay (if configured by user)
+    if (currentBid !== null && lastSubmittedBid !== null && Math.ceil(currentBid) === lastSubmittedBid) {
+      if (!weAreLeading) {
+        weAreLeading = true;
+        leadingBidAmount = lastSubmittedBid;
+        minBidAfterOurBid = nextBid;
+        awaitingOwnBidUpdate = false;
+        log(`🏆 Own bid (₹${lastSubmittedBid}) verified as current highest on page! Waiting for competitor...`, 'info');
+        updateOverlayStatus();
+      }
+    }
+
     // Detect if the next bid value changed
     if (lastKnownNextBid !== null && nextBid !== lastKnownNextBid) {
-      const now = Date.now();
+      // 1. Check if this update is the reflection of our own accepted bid:
+      // When we submit a bid B, IREPS updates nextBid to B + increment.
+      // If awaitingOwnBidUpdate is true, this first update reflects our own bid!
+      if (awaitingOwnBidUpdate) {
+        awaitingOwnBidUpdate = false;
+        weAreLeading = true;
+        leadingBidAmount = lastSubmittedBid;
+        minBidAfterOurBid = nextBid;
+        lastKnownNextBid = nextBid;
+        lastActTimestamp = now;
+        log(`🎯 Own bid (₹${leadingBidAmount}) accepted! We are in the lead (next required rate: ₹${nextBid}). Waiting for competitor to outbid...`, 'success');
+        updateOverlayStatus();
+        updateOverlayCurrentBid(currentBid ?? leadingBidAmount, targetBid);
+        return;
+      }
 
-      // Prevent double-acting (e.g., if network, mutation, input event, and poll all fire)
-      // or if the calculated target value is identical to the bid we already just placed
-      if (now - lastActTimestamp < 800 || targetBid === lastSubmittedBid) {
+      // 2. If we are currently leading:
+      // Only a rate that exceeds minBidAfterOurBid indicates a competitor placed a new bid!
+      if (weAreLeading) {
+        if (minBidAfterOurBid !== null && nextBid <= minBidAfterOurBid) {
+          // Rate has not advanced past our bid's required minimum — we are still leading!
+          lastKnownNextBid = nextBid;
+          updateOverlayCurrentBid(currentBid ?? leadingBidAmount, targetBid);
+          return;
+        }
+
+        // nextBid has increased beyond minBidAfterOurBid: A competitor has placed a bid!
+        weAreLeading = false;
+        minBidAfterOurBid = null;
+        updateOverlayStatus();
+        log(`🔔 COMPETITOR OUTBID US! Next bid: ₹${lastKnownNextBid} → ₹${nextBid} (Target: ₹${targetBid}) [via ${source}]`, 'alert');
+      } else {
+        log(`🔔 CHANGE DETECTED! Next bid: ₹${lastKnownNextBid} → ₹${nextBid} (Target: ₹${targetBid}) [via ${source}]`, 'alert');
+      }
+
+      // 3. Self-outbidding prevention: Never submit a bid that is <= what we already submitted
+      if (lastSubmittedBid !== null && targetBid <= lastSubmittedBid) {
+        log(`ℹ️ Target ₹${targetBid} is <= our submitted bid ₹${lastSubmittedBid}. Skipping.`, 'info');
+        lastKnownNextBid = nextBid;
+        updateOverlayCurrentBid(currentBid ?? lastSubmittedBid, targetBid);
+        return;
+      }
+
+      // 4. Double-acting debounce (e.g. rapid duplicate events within 400ms)
+      if (now - lastActTimestamp < 400) {
         lastKnownNextBid = nextBid;
         updateOverlayCurrentBid(currentBid, targetBid);
         return;
       }
 
-      // Self-outbidding guard: if currentBidDisplay is configured and shows the exact
-      // amount we just submitted, this nextBid update is from our own accepted bid.
-      if (currentBid !== null && lastSubmittedBid !== null && Math.ceil(currentBid) === lastSubmittedBid) {
-        log(`ℹ️ Own bid (₹${lastSubmittedBid}) is currently highest; updated next bid to ₹${targetBid}`, 'info');
-        lastKnownNextBid = nextBid;
-        updateOverlayCurrentBid(currentBid, targetBid);
-        return;
-      }
-
-      log(`🔔 CHANGE DETECTED! Next bid: ₹${lastKnownNextBid} → ₹${nextBid} (Target: ₹${targetBid}) [via ${source}]`, 'alert');
-
-      // Check if target bid exceeds our max limit
+      // 5. Check if target bid exceeds our max limit
       if (targetBid > maxBidLimit) {
         log(`🛑 Next bid ₹${targetBid} exceeds max limit ₹${maxBidLimit}. STOPPING.`, 'warn');
         lastKnownNextBid = nextBid;
@@ -226,7 +279,7 @@
         return;
       }
 
-      // Check for suspicious spike (bait protection)
+      // 6. Check for suspicious spike (bait protection)
       const jump = nextBid - lastKnownNextBid;
       if (maxJumpLimit !== Infinity && jump > maxJumpLimit) {
         log(`🚨 SPIKE BLOCKED! Jump ₹${lastKnownNextBid} → ₹${nextBid} (Δ₹${jump.toFixed(2)}) exceeds max jump ₹${maxJumpLimit}. PAUSED.`, 'warn');
@@ -260,9 +313,13 @@
           lastSubmittedBid = targetBid;
           lastBidPlacedAt = now;
           awaitingConfirmClick = true;
-          log(`✅ Entry #${bidCount} placed! (₹${targetBid})${filled ? '' : ' ⚠️ amount field not filled'}`, 'success');
+          awaitingOwnBidUpdate = true;
+          weAreLeading = false;
+          minBidAfterOurBid = null;
+          log(`✅ Entry #${bidCount} placed! (₹${targetBid})${filled ? '' : ' ⚠️ amount field not filled'} — waiting for auction confirmation...`, 'success');
         } else {
           log(`❌ Click failed! Selector: ${selectorConfig?.bidButton}`, 'error');
+          awaitingOwnBidUpdate = false;
         }
       } finally {
         isSubmittingBid = false;
@@ -270,7 +327,7 @@
     }
 
     lastKnownNextBid = readNextBidAmount() ?? nextBid;
-    updateOverlayCurrentBid(currentBid, targetBid);
+    updateOverlayCurrentBid(currentBid ?? (weAreLeading ? leadingBidAmount : null), targetBid);
   }
 
   // ── Network Intercept: Listen for bid data from MAIN world interceptor ──
@@ -439,6 +496,14 @@
 
     const configuredBidBtn = selectorConfig?.bidButton ? getEl(selectorConfig.bidButton) : null;
 
+    // Detect error / rejection dialogs to reset our leading wait state
+    const nodeText = (node.textContent || '').toLowerCase();
+    if (/bid (?:failed|rejected|not accepted)|rate cannot be less|already outbid/i.test(nodeText)) {
+      log(`⚠️ Bid error dialog: "${nodeText.substring(0, 80)}"`, 'warn');
+      awaitingOwnBidUpdate = false;
+      weAreLeading = false;
+    }
+
     const checkEl = (el) => {
       if (!awaitingConfirmClick || !el || !el.matches) return;
       if ((overlay && overlay.contains(el)) || (authModal && authModal.contains(el))) return;
@@ -491,6 +556,10 @@
     if (armed) {
       lastKnownNextBid = readNextBidAmount();
       lastSubmittedBid = null;
+      weAreLeading = false;
+      leadingBidAmount = null;
+      awaitingOwnBidUpdate = false;
+      minBidAfterOurBid = null;
       awaitingConfirmClick = false;
       const displayBid = readCurrentBidForDisplay();
       const roundedInitial = lastKnownNextBid !== null ? getNextWholeBid(lastKnownNextBid, displayBid) : 'unknown';
@@ -502,6 +571,10 @@
       startPolling(pollSpeed);
     } else {
       awaitingConfirmClick = false;
+      awaitingOwnBidUpdate = false;
+      weAreLeading = false;
+      leadingBidAmount = null;
+      minBidAfterOurBid = null;
       log('🔴 DISARMED. Monitoring stopped.', 'warn');
       stopObserver();
       stopConfirmObserver();
@@ -1112,7 +1185,11 @@
       text.textContent = `STATIC LOCK (${lockDurationRemaining}s)`;
     } else if (isArmed) {
       dot.className = 'ireps-bot-dot ireps-bot-dot-armed';
-      text.textContent = 'ARMED — WATCHING';
+      if (weAreLeading && leadingBidAmount !== null) {
+        text.textContent = `LEADING (₹${leadingBidAmount.toLocaleString('en-IN')}) 🏆`;
+      } else {
+        text.textContent = 'ARMED — WATCHING';
+      }
     } else {
       dot.className = 'ireps-bot-dot ireps-bot-dot-disarmed';
       text.textContent = 'DISARMED';
@@ -1147,7 +1224,15 @@
     const curEl = document.getElementById('ireps-bot-current-bid');
     const nextEl = document.getElementById('ireps-bot-next-bid');
     const countEl = document.getElementById('ireps-bot-bid-count');
-    if (curEl) curEl.textContent = current !== null ? `₹${current.toLocaleString('en-IN')}` : '—';
+    if (curEl) {
+      if (weAreLeading && leadingBidAmount !== null) {
+        curEl.textContent = `₹${leadingBidAmount.toLocaleString('en-IN')} (YOU 🏆)`;
+      } else if (current !== null) {
+        curEl.textContent = `₹${current.toLocaleString('en-IN')}`;
+      } else {
+        curEl.textContent = '—';
+      }
+    }
     if (nextEl) nextEl.textContent = next !== null ? `₹${next.toLocaleString('en-IN')}` : '—';
     if (countEl) countEl.textContent = bidCount;
   }
@@ -1361,6 +1446,8 @@
         maxJumpLimit: maxJumpLimit === Infinity ? null : maxJumpLimit,
         currentBid: rawCurrent,
         nextBid: rawNext !== null ? getNextWholeBid(rawNext, rawCurrent) : null,
+        weAreLeading,
+        leadingBidAmount,
         configured: !!(selectorConfig?.nextBidInput && selectorConfig?.bidAmountInput && selectorConfig?.bidButton),
         lockState,
         isLocked,

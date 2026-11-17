@@ -67,7 +67,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         statusText.textContent = `STATIC LOCK (${response.lockDurationRemaining}s)`;
       } else if (response.isArmed) {
         statusDot.className = 'status-dot armed';
-        statusText.textContent = 'ARMED — WATCHING';
+        if (response.weAreLeading && response.leadingBidAmount) {
+          statusText.textContent = `LEADING (₹${response.leadingBidAmount.toLocaleString('en-IN')}) 🏆`;
+        } else {
+          statusText.textContent = 'ARMED — WATCHING';
+        }
       } else {
         statusDot.className = 'status-dot disarmed';
         statusText.textContent = 'DISARMED';
@@ -81,9 +85,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         btnDisarm.style.display = 'none';
       }
 
-      currentBid.textContent = response.currentBid !== null
-        ? `₹${response.currentBid.toLocaleString('en-IN')}`
-        : '—';
+      if (response.weAreLeading && response.leadingBidAmount) {
+        currentBid.textContent = `₹${response.leadingBidAmount.toLocaleString('en-IN')} (YOU 🏆)`;
+      } else {
+        currentBid.textContent = response.currentBid !== null
+          ? `₹${response.currentBid.toLocaleString('en-IN')}`
+          : '—';
+      }
       nextBid.textContent = response.nextBid !== null
         ? `₹${response.nextBid.toLocaleString('en-IN')}`
         : '—';
