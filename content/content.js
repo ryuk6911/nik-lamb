@@ -20,9 +20,10 @@
   let awaitingConfirmClick = false; // Single-shot flag for auto-confirming modal dialog
   let isSubmittingBid = false;  // Re-entrancy guard during fillBidAmount + clickBidButton
   let weAreLeading = false;     // True when our own bid is currently the highest
-  let leadingBidAmount = null;  // The bid amount we are currently leading with
-  let awaitingOwnBidUpdate = false; // True immediately after clicking submit, waiting for nextBid to advance
-  let minBidAfterOurBid = null; // The nextBid rate that was set after our bid was accepted
+  let ourActiveBid = null;      // The bid amount we are currently leading with
+  let awaitingReflectionOf = null; // The bid amount waiting for nextBid to advance
+  let ourLeadRate = null;       // The nextBid rate that was set after our bid was accepted
+  let confirmPollTimer = null;  // High-frequency confirmation dialog poll interval
   let bidCount = 0;
   let observer = null;
   let parentObserver = null;
@@ -158,9 +159,9 @@
     }
 
     // Dispatch events so the page's validation recognizes the new value
+    // (Omit blur as blur can trigger async field-validation delays)
     el.dispatchEvent(new Event('input', { bubbles: true }));
     el.dispatchEvent(new Event('change', { bubbles: true }));
-    el.dispatchEvent(new Event('blur', { bubbles: true }));
     el.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
 
     log(`📝 Filled bid amount: ₹${wholeValue} → ${selectorConfig.bidAmountInput}`, 'info');
@@ -179,8 +180,9 @@
       return false;
     }
     if (btn.disabled) {
-      log('⚠️ Submit button is disabled, skipping', 'warn');
-      return false;
+      log('⚠️ Submit button was disabled — auto-enabling to place bid', 'warn');
+      btn.disabled = false;
+      btn.removeAttribute('disabled');
     }
     btn.click();
     return true;
@@ -192,12 +194,16 @@
   function checkAndBid(source = 'poll') {
     if (!isArmed || isLocked || isSubmittingBid) return;
 
+    // Check for any pending confirmation dialog first
+    if (awaitingConfirmClick) {
+      scanAndClickConfirmDialog();
+    }
+
     const now = Date.now();
 
-    // Safety timeout: if awaiting confirmation of our bid for > 6s, reset wait state
-    if (awaitingOwnBidUpdate && (now - lastBidPlacedAt > 6000)) {
-      log('⚠️ Own bid confirmation wait timed out (6s). Resuming normal detection.', 'warn');
-      awaitingOwnBidUpdate = false;
+    // Reset reflection wait after 2.5s safety timeout
+    if (awaitingReflectionOf !== null && (now - lastBidPlacedAt > 2500)) {
+      awaitingReflectionOf = null;
     }
 
     const nextBid = readNextBidAmount();
@@ -207,48 +213,50 @@
     const targetBid = getNextWholeBid(nextBid, currentBid);
 
     // Direct confirmation from currentBidDisplay (if configured by user)
-    if (currentBid !== null && lastSubmittedBid !== null && Math.ceil(currentBid) === lastSubmittedBid) {
+    if (currentBid !== null && ourActiveBid !== null && Math.ceil(currentBid) === ourActiveBid) {
       if (!weAreLeading) {
         weAreLeading = true;
-        leadingBidAmount = lastSubmittedBid;
-        minBidAfterOurBid = nextBid;
-        awaitingOwnBidUpdate = false;
-        log(`🏆 Own bid (₹${lastSubmittedBid}) verified as current highest on page! Waiting for competitor...`, 'info');
         updateOverlayStatus();
       }
+      lastKnownNextBid = nextBid;
+      updateOverlayCurrentBid(currentBid, targetBid);
+      return;
     }
 
     // Detect if the next bid value changed
     if (lastKnownNextBid !== null && nextBid !== lastKnownNextBid) {
       // 1. Check if this update is the reflection of our own accepted bid:
-      // When we submit a bid B, IREPS updates nextBid to B + increment.
-      // If awaitingOwnBidUpdate is true, this first update reflects our own bid!
-      if (awaitingOwnBidUpdate) {
-        awaitingOwnBidUpdate = false;
-        weAreLeading = true;
-        leadingBidAmount = lastSubmittedBid;
-        minBidAfterOurBid = nextBid;
-        lastKnownNextBid = nextBid;
-        lastActTimestamp = now;
-        log(`🎯 Own bid (₹${leadingBidAmount}) accepted! We are in the lead (next required rate: ₹${nextBid}). Waiting for competitor to outbid...`, 'success');
-        updateOverlayStatus();
-        updateOverlayCurrentBid(currentBid ?? leadingBidAmount, targetBid);
-        return;
+      // When we submit bid B, IREPS updates nextBid to B + increment.
+      if (awaitingReflectionOf !== null) {
+        // It reflects our bid if nextBid >= awaitingReflectionOf AND targetBid <= awaitingReflectionOf + 1
+        if (nextBid >= awaitingReflectionOf && targetBid <= awaitingReflectionOf + 1) {
+          awaitingReflectionOf = null;
+          ourActiveBid = lastSubmittedBid;
+          ourLeadRate = nextBid;
+          weAreLeading = true;
+          lastKnownNextBid = nextBid;
+          log(`🎯 Own bid (₹${ourActiveBid}) accepted! We are in the lead (next rate: ₹${nextBid}). Waiting for competitor...`, 'success');
+          updateOverlayStatus();
+          updateOverlayCurrentBid(currentBid ?? ourActiveBid, targetBid);
+          return;
+        } else {
+          // If nextBid jumped higher than our reflection, a competitor jumped ahead!
+          awaitingReflectionOf = null;
+          weAreLeading = false;
+        }
       }
 
-      // 2. If we are currently leading:
-      // Only a rate that exceeds minBidAfterOurBid indicates a competitor placed a new bid!
+      // 2. If we were leading:
       if (weAreLeading) {
-        if (minBidAfterOurBid !== null && nextBid <= minBidAfterOurBid) {
-          // Rate has not advanced past our bid's required minimum — we are still leading!
+        // If nextBid hasn't changed from our lead rate, we are still leading!
+        if (ourLeadRate !== null && nextBid === ourLeadRate) {
           lastKnownNextBid = nextBid;
-          updateOverlayCurrentBid(currentBid ?? leadingBidAmount, targetBid);
+          updateOverlayCurrentBid(currentBid ?? ourActiveBid, targetBid);
           return;
         }
-
-        // nextBid has increased beyond minBidAfterOurBid: A competitor has placed a bid!
+        // nextBid changed from ourLeadRate: a competitor has placed a bid!
         weAreLeading = false;
-        minBidAfterOurBid = null;
+        ourLeadRate = null;
         updateOverlayStatus();
         log(`🔔 COMPETITOR OUTBID US! Next bid: ₹${lastKnownNextBid} → ₹${nextBid} (Target: ₹${targetBid}) [via ${source}]`, 'alert');
       } else {
@@ -257,20 +265,12 @@
 
       // 3. Self-outbidding prevention: Never submit a bid that is <= what we already submitted
       if (lastSubmittedBid !== null && targetBid <= lastSubmittedBid) {
-        log(`ℹ️ Target ₹${targetBid} is <= our submitted bid ₹${lastSubmittedBid}. Skipping.`, 'info');
         lastKnownNextBid = nextBid;
         updateOverlayCurrentBid(currentBid ?? lastSubmittedBid, targetBid);
         return;
       }
 
-      // 4. Double-acting debounce (e.g. rapid duplicate events within 400ms)
-      if (now - lastActTimestamp < 400) {
-        lastKnownNextBid = nextBid;
-        updateOverlayCurrentBid(currentBid, targetBid);
-        return;
-      }
-
-      // 5. Check if target bid exceeds our max limit
+      // 4. Check if target bid exceeds our max limit
       if (targetBid > maxBidLimit) {
         log(`🛑 Next bid ₹${targetBid} exceeds max limit ₹${maxBidLimit}. STOPPING.`, 'warn');
         lastKnownNextBid = nextBid;
@@ -279,7 +279,7 @@
         return;
       }
 
-      // 6. Check for suspicious spike (bait protection)
+      // 5. Check for suspicious spike (bait protection)
       const jump = nextBid - lastKnownNextBid;
       if (maxJumpLimit !== Infinity && jump > maxJumpLimit) {
         log(`🚨 SPIKE BLOCKED! Jump ₹${lastKnownNextBid} → ₹${nextBid} (Δ₹${jump.toFixed(2)}) exceeds max jump ₹${maxJumpLimit}. PAUSED.`, 'warn');
@@ -291,7 +291,6 @@
 
       // Lock out re-entrant calls from input/change events fired during fillBidAmount
       isSubmittingBid = true;
-      lastActTimestamp = now;
       lastKnownNextBid = nextBid;
 
       try {
@@ -313,13 +312,17 @@
           lastSubmittedBid = targetBid;
           lastBidPlacedAt = now;
           awaitingConfirmClick = true;
-          awaitingOwnBidUpdate = true;
+          awaitingReflectionOf = targetBid;
           weAreLeading = false;
-          minBidAfterOurBid = null;
-          log(`✅ Entry #${bidCount} placed! (₹${targetBid})${filled ? '' : ' ⚠️ amount field not filled'} — waiting for auction confirmation...`, 'success');
+          ourLeadRate = null;
+          log(`✅ Entry #${bidCount} placed! (₹${targetBid})${filled ? '' : ' ⚠️ amount field not filled'}`, 'success');
+
+          // Step 3: Instant scan for confirmation dialog (0ms) + fast 15ms poll
+          scanAndClickConfirmDialog();
+          startFastConfirmCheck();
         } else {
           log(`❌ Click failed! Selector: ${selectorConfig?.bidButton}`, 'error');
-          awaitingOwnBidUpdate = false;
+          awaitingReflectionOf = null;
         }
       } finally {
         isSubmittingBid = false;
@@ -327,7 +330,7 @@
     }
 
     lastKnownNextBid = readNextBidAmount() ?? nextBid;
-    updateOverlayCurrentBid(currentBid ?? (weAreLeading ? leadingBidAmount : null), targetBid);
+    updateOverlayCurrentBid(currentBid ?? (weAreLeading ? ourActiveBid : null), targetBid);
   }
 
   // ── Network Intercept: Listen for bid data from MAIN world interceptor ──
@@ -455,23 +458,78 @@
     }
   }
 
-  // ── Confirmation Dialog Observer: instant click on modal appearance ──
-  function startConfirmObserver() {
-    if (confirmObserver) confirmObserver.disconnect();
+  // ── Confirmation Dialog Handling: Instant scan + Fast Polling + MutationObserver ──
+  function scanAndClickConfirmDialog() {
+    if (!isArmed || isLocked || !awaitingConfirmClick) return false;
+    if (Date.now() - lastBidPlacedAt > 4000) {
+      awaitingConfirmClick = false;
+      if (confirmPollTimer) {
+        clearInterval(confirmPollTimer);
+        confirmPollTimer = null;
+      }
+      return false;
+    }
 
-    confirmObserver = new MutationObserver((mutations) => {
-      for (const mutation of mutations) {
-        for (const node of mutation.addedNodes) {
-          if (node.nodeType !== Node.ELEMENT_NODE) continue;
-          // Check if the added node IS or CONTAINS a confirm button
-          handleConfirmationInNode(node);
+    const authModal = document.getElementById('ireps-bot-auth-modal');
+    const configuredBidBtn = selectorConfig?.bidButton ? getEl(selectorConfig.bidButton) : null;
+
+    // Scan all potential confirm buttons on the page
+    const candidates = document.querySelectorAll(
+      'button, input[type="button"], input[type="submit"], .modal .btn, .swal2-confirm, .bootbox-accept'
+    );
+
+    for (const btn of candidates) {
+      if (!isVisible(btn)) continue;
+      if (overlay && overlay.contains(btn)) continue;
+      if (authModal && authModal.contains(btn)) continue;
+      if (configuredBidBtn && (btn === configuredBidBtn || configuredBidBtn.contains(btn))) continue;
+
+      const text = (btn.value || btn.textContent || '').trim().toLowerCase();
+      const isConfirmText = (text === 'ok' || text === 'yes' || text === 'confirm' || text === 'proceed' || text === 'accept');
+      const isPrimaryModalBtn = btn.matches('.modal .btn-primary, .modal .btn-success, .swal2-confirm, .bootbox-accept');
+
+      if (isConfirmText || isPrimaryModalBtn) {
+        awaitingConfirmClick = false;
+        if (confirmPollTimer) {
+          clearInterval(confirmPollTimer);
+          confirmPollTimer = null;
         }
+        lastActTimestamp = Date.now();
+        log(`🔘 Instant auto-confirmed dialog: "${text}"`, 'info');
+        btn.click();
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function startFastConfirmCheck() {
+    if (confirmPollTimer) clearInterval(confirmPollTimer);
+    const startTime = Date.now();
+    confirmPollTimer = setInterval(() => {
+      if (!awaitingConfirmClick || Date.now() - startTime > 4000) {
+        clearInterval(confirmPollTimer);
+        confirmPollTimer = null;
+        return;
+      }
+      scanAndClickConfirmDialog();
+    }, 15);
+  }
+
+  function startConfirmObserver() {
+    stopConfirmObserver();
+
+    confirmObserver = new MutationObserver(() => {
+      if (awaitingConfirmClick) {
+        scanAndClickConfirmDialog();
       }
     });
 
     confirmObserver.observe(document.body, {
       childList: true,
-      subtree: true
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['style', 'class', 'hidden']
     });
   }
 
@@ -480,57 +538,16 @@
       confirmObserver.disconnect();
       confirmObserver = null;
     }
+    if (confirmPollTimer) {
+      clearInterval(confirmPollTimer);
+      confirmPollTimer = null;
+    }
   }
 
   // ── Check a newly-added DOM node for confirmation buttons ──
   function handleConfirmationInNode(node) {
-    // Only react once per placed bid within a 5-second window
-    if (!isArmed || isLocked || !awaitingConfirmClick) return;
-    if (Date.now() - lastBidPlacedAt > 5000) {
-      awaitingConfirmClick = false;
-      return;
-    }
-
-    const authModal = document.getElementById('ireps-bot-auth-modal');
-    if ((overlay && overlay.contains(node)) || (authModal && authModal.contains(node))) return;
-
-    const configuredBidBtn = selectorConfig?.bidButton ? getEl(selectorConfig.bidButton) : null;
-
-    // Detect error / rejection dialogs to reset our leading wait state
-    const nodeText = (node.textContent || '').toLowerCase();
-    if (/bid (?:failed|rejected|not accepted)|rate cannot be less|already outbid/i.test(nodeText)) {
-      log(`⚠️ Bid error dialog: "${nodeText.substring(0, 80)}"`, 'warn');
-      awaitingOwnBidUpdate = false;
-      weAreLeading = false;
-    }
-
-    const checkEl = (el) => {
-      if (!awaitingConfirmClick || !el || !el.matches) return;
-      if ((overlay && overlay.contains(el)) || (authModal && authModal.contains(el))) return;
-      if (configuredBidBtn && (el === configuredBidBtn || configuredBidBtn.contains(el))) return;
-
-      const text = (el.value || el.textContent || '').trim().toLowerCase();
-      const isConfirmButton = (
-        el.matches('button, input[type="button"], input[type="submit"]') &&
-        (text === 'ok' || text === 'yes' || text === 'confirm')
-      );
-      const isModalPrimary = el.matches('.modal .btn-primary, .modal .btn-success, .swal2-confirm, .bootbox-accept');
-
-      if ((isConfirmButton || isModalPrimary) && isVisible(el)) {
-        awaitingConfirmClick = false;
-        lastActTimestamp = Date.now();
-        log(`🔘 Auto-confirming dialog: "${text}"`, 'info');
-        el.click();
-      }
-    };
-
-    // Check the node itself
-    checkEl(node);
-
-    // Check all buttons inside the node
-    if (awaitingConfirmClick && node.querySelectorAll) {
-      node.querySelectorAll('button, input[type="button"], input[type="submit"]').forEach(checkEl);
-    }
+    if (!awaitingConfirmClick) return;
+    scanAndClickConfirmDialog();
   }
 
   // ── Polling fallback (for AJAX-updated content MutationObserver might miss) ──
@@ -556,10 +573,10 @@
     if (armed) {
       lastKnownNextBid = readNextBidAmount();
       lastSubmittedBid = null;
+      ourActiveBid = null;
+      ourLeadRate = null;
+      awaitingReflectionOf = null;
       weAreLeading = false;
-      leadingBidAmount = null;
-      awaitingOwnBidUpdate = false;
-      minBidAfterOurBid = null;
       awaitingConfirmClick = false;
       const displayBid = readCurrentBidForDisplay();
       const roundedInitial = lastKnownNextBid !== null ? getNextWholeBid(lastKnownNextBid, displayBid) : 'unknown';
@@ -571,10 +588,14 @@
       startPolling(pollSpeed);
     } else {
       awaitingConfirmClick = false;
-      awaitingOwnBidUpdate = false;
+      awaitingReflectionOf = null;
+      ourActiveBid = null;
+      ourLeadRate = null;
       weAreLeading = false;
-      leadingBidAmount = null;
-      minBidAfterOurBid = null;
+      if (confirmPollTimer) {
+        clearInterval(confirmPollTimer);
+        confirmPollTimer = null;
+      }
       log('🔴 DISARMED. Monitoring stopped.', 'warn');
       stopObserver();
       stopConfirmObserver();
@@ -1185,8 +1206,8 @@
       text.textContent = `STATIC LOCK (${lockDurationRemaining}s)`;
     } else if (isArmed) {
       dot.className = 'ireps-bot-dot ireps-bot-dot-armed';
-      if (weAreLeading && leadingBidAmount !== null) {
-        text.textContent = `LEADING (₹${leadingBidAmount.toLocaleString('en-IN')}) 🏆`;
+      if (weAreLeading && ourActiveBid !== null) {
+        text.textContent = `LEADING (₹${ourActiveBid.toLocaleString('en-IN')}) 🏆`;
       } else {
         text.textContent = 'ARMED — WATCHING';
       }
@@ -1225,8 +1246,8 @@
     const nextEl = document.getElementById('ireps-bot-next-bid');
     const countEl = document.getElementById('ireps-bot-bid-count');
     if (curEl) {
-      if (weAreLeading && leadingBidAmount !== null) {
-        curEl.textContent = `₹${leadingBidAmount.toLocaleString('en-IN')} (YOU 🏆)`;
+      if (weAreLeading && ourActiveBid !== null) {
+        curEl.textContent = `₹${ourActiveBid.toLocaleString('en-IN')} (YOU 🏆)`;
       } else if (current !== null) {
         curEl.textContent = `₹${current.toLocaleString('en-IN')}`;
       } else {
@@ -1447,7 +1468,7 @@
         currentBid: rawCurrent,
         nextBid: rawNext !== null ? getNextWholeBid(rawNext, rawCurrent) : null,
         weAreLeading,
-        leadingBidAmount,
+        leadingBidAmount: ourActiveBid,
         configured: !!(selectorConfig?.nextBidInput && selectorConfig?.bidAmountInput && selectorConfig?.bidButton),
         lockState,
         isLocked,
